@@ -10,29 +10,13 @@ const supabase = createClient(
   process.env.SUPABASE_SECRET_KEY!
 )
 
-function safe(str: string): string {
-  if (!str) return ''
-  const out = []
-  for (let i = 0; i < str.length; i++) {
-    const c = str.charCodeAt(i)
-    if (c >= 32 && c <= 126) {
-      out.push(str[i])
-    } else if (c === 9 || c === 10 || c === 13) {
-      out.push(' ')
-    } else {
-      out.push(' ')
-    }
-  }
-  return out.join('').replace(/\s+/g, ' ').trim()
-}
-
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const query = safe(body.query || '')
+    const query = Buffer.from(body.query || '', 'ascii').toString('ascii')
     if (!query) return NextResponse.json({ error: 'Query required' }, { status: 400 })
 
-    const words = query.split(' ').filter(w => w.length > 3).slice(0, 2).join(' & ')
+    const words = query.split(' ').filter((w: string) => w.length > 3).slice(0, 2).join(' & ')
 
     let sermonResults: any[] = []
     let bibleResults: any[] = []
@@ -43,40 +27,44 @@ export async function POST(request: NextRequest) {
         .select('text, sermon_id, sermons(title, date)')
         .textSearch('text', words)
         .limit(3)
-      sermonResults = s || []
+      sermonResults = (s || []).map((r: any) => ({
+        ...r,
+        text: Buffer.from(r.text || '', 'ascii').toString('ascii')
+      }))
 
       const { data: b } = await supabase
         .from('bible_verses')
         .select('book, chapter, verse, text')
         .textSearch('text', words)
         .limit(2)
-      bibleResults = b || []
+      bibleResults = (b || []).map((r: any) => ({
+        ...r,
+        text: Buffer.from(r.text || '', 'ascii').toString('ascii')
+      }))
     }
 
-    const context = [
+    const passages = [
       ...sermonResults.map((r: any) =>
-        `From "${safe(r.sermons?.title || '')}" (${r.sermons?.date || ''}):\n${safe(r.text).slice(0, 400)}`
+        'From ' + (r.sermons?.title || 'Unknown') + ' (' + (r.sermons?.date || '') + '):\n' + (r.text || '').slice(0, 400)
       ),
       ...bibleResults.map((r: any) =>
-        `From ${r.book} ${r.chapter}:${r.verse} (KJV):\n${safe(r.text)}`
+        'From ' + r.book + ' ' + r.chapter + ':' + r.verse + ' (KJV):\n' + (r.text || '')
       )
     ].join('\n\n---\n\n') || 'No relevant passages found.'
 
-    const safeContext = safe(context)
-    const safeQuery = safe(query)
-    const safeSystem = safe(`You are a research assistant for William Branham sermons and KJV Bible. Answer ONLY from these passages. Be concise.\n\nPASSAGES:\n${safeContext}`)
+    const systemPrompt = 'You are a research assistant for William Branham sermons and KJV Bible. Answer ONLY from these passages. Be concise.\n\nPASSAGES:\n' + passages
 
     const aiResponse = await anthropic.messages.create({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 512,
-      system: safeSystem,
-      messages: [{ role: 'user', content: safeQuery }]
+      system: systemPrompt,
+      messages: [{ role: 'user', content: query }]
     })
 
     const responseText = aiResponse?.content?.[0]?.type === 'text' ? aiResponse.content[0].text : ''
 
     return NextResponse.json({
-      response: safe(responseText),
+      response: responseText,
       sources: sermonResults.slice(0, 2).map((r: any) => ({
         title: r.sermons?.title,
         date: r.sermons?.date,
@@ -86,6 +74,6 @@ export async function POST(request: NextRequest) {
 
   } catch (error: any) {
     console.error('Chat error:', error)
-    return NextResponse.json({ error: error?.message || 'Internal server error' }, { status: 500 })
+    return NextResponse.json({ error: error?.message || 'Server error' }, { status: 500 })
   }
 }
