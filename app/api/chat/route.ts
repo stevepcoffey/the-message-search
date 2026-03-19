@@ -13,9 +13,8 @@ export async function POST(request: NextRequest) {
     const { query } = await request.json()
     if (!query) return NextResponse.json({ error: 'Query required' }, { status: 400 })
 
-    // Simple keyword search across sermon chunks
     const words = query.split(' ').slice(0, 3).join(' | ')
-    
+
     const { data: sermonResults } = await supabase
       .from('sermon_chunks')
       .select('text, sermon_id, sermons(title, date, location)')
@@ -40,14 +39,7 @@ export async function POST(request: NextRequest) {
     const message = await anthropic.messages.create({
       model: 'claude-sonnet-4-6',
       max_tokens: 1024,
-      system: `You are a research assistant for The Message, a body of sermons preached by William Marrion Branham between 1947 and 1965, and the King James Bible.
-
-You ONLY answer using the passages provided below. Do not draw on outside knowledge. If the answer is not in the passages, say so.
-
-Always attribute quotes to the specific sermon title and date, or Bible reference.
-
-SOURCE PASSAGES:
-${context}`,
+      system: `You are a research assistant for The Message, a body of sermons preached by William Marrion Branham between 1947 and 1965, and the King James Bible. You ONLY answer using the passages provided below. Do not draw on outside knowledge. If the answer is not in the passages, say so. Always attribute quotes to the specific sermon title and date, or Bible reference.\n\nSOURCE PASSAGES:\n${context}`,
       messages: [{ role: 'user', content: query }]
     })
 
@@ -73,8 +65,3 @@ ${context}`,
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 }
-```
-
-Save with **Command + S**. Then in Terminal:
-```
-cd ~/Desktop/the-message-search && git add . && git commit -m "Fix chat to use text search" && git push
