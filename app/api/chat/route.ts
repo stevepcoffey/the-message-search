@@ -10,12 +10,20 @@ const supabase = createClient(
   process.env.SUPABASE_SECRET_KEY!
 )
 
+function cleanText(text: string): string {
+  return text
+    .replace(/[\u2028\u2029]/g, ' ')
+    .replace(/[^\x00-\x7F]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { query } = await request.json()
     if (!query) return NextResponse.json({ error: 'Query required' }, { status: 400 })
 
-    const words = query.split(' ').slice(0, 2).join(' | ')
+    const words = cleanText(query).split(' ').slice(0, 2).join(' | ')
 
     const { data: sermonResults } = await supabase
       .from('sermon_chunks')
@@ -31,10 +39,10 @@ export async function POST(request: NextRequest) {
 
     const context = [
       ...(sermonResults || []).map((r: any) =>
-        `From "${r.sermons?.title}" (${r.sermons?.date}):\n${r.text.slice(0, 300)}`
+        `From "${cleanText(r.sermons?.title || '')}" (${r.sermons?.date}):\n${cleanText(r.text).slice(0, 300)}`
       ),
       ...(bibleResults || []).map((r: any) =>
-        `From ${r.book} ${r.chapter}:${r.verse} (KJV):\n${r.text}`
+        `From ${r.book} ${r.chapter}:${r.verse} (KJV):\n${cleanText(r.text)}`
       )
     ].join('\n\n---\n\n')
 
@@ -42,7 +50,7 @@ export async function POST(request: NextRequest) {
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 512,
       system: `You are a research assistant for William Branham's sermons and the KJV Bible. Answer ONLY from the passages below. Be concise.\n\nPASSAGES:\n${context}`,
-      messages: [{ role: 'user', content: query }]
+      messages: [{ role: 'user', content: cleanText(query) }]
     })
 
     const responseText = message.content[0].type === 'text' ? message.content[0].text : ''
