@@ -16,7 +16,7 @@ function safe(s: string): string {
     const c = s.charCodeAt(i)
     o += (c >= 32 && c <= 126) ? s[i] : ' '
   }
-  return o.replace(/ +/g, ' ').trim()
+  return o.replace(/  +/g, ' ').trim()
 }
 
 function getSearchPhrase(query: string): string {
