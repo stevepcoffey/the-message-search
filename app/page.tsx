@@ -35,7 +35,7 @@ const BIBLE_VERSES = [
   { verse: 'Romans 8:16', text: 'The Spirit itself beareth witness with our spirit, that we are the children of God.' },
 ]
 
-const shell = {
+const lightShell = {
   bg: '#ffffff',
   bg2: '#f9f9f8',
   bg3: '#f2f2f0',
@@ -46,6 +46,19 @@ const shell = {
   border: 'rgba(0,0,0,0.08)',
   borderSoft: 'rgba(0,0,0,0.06)',
   amber: '#c47a1a',
+}
+
+const darkShell = {
+  bg: '#1a1a18',
+  bg2: '#1f1f1d',
+  bg3: '#252523',
+  sidebar: '#1d1d1b',
+  text: '#f2f2ef',
+  text2: '#8a8a85',
+  text3: '#55554f',
+  border: 'rgba(255,255,255,0.12)',
+  borderSoft: 'rgba(255,255,255,0.08)',
+  amber: '#e09940',
 }
 
 export default function Home() {
@@ -61,8 +74,10 @@ export default function Home() {
   const [mode, setMode] = useState<'chat' | 'search'>('chat')
   const [searchSource, setSearchSource] = useState<SearchSource>('both')
   const [fontSize, setFontSize] = useState(14)
+  const [dark, setDark] = useState(false)
   const [sidebarTab, setSidebarTab] = useState<'folders' | 'history'>('folders')
   const [composerFocused, setComposerFocused] = useState(false)
+  const shell = dark ? darkShell : lightShell
 
   const [query, setQuery] = useState('')
   const [loading, setLoading] = useState(false)
@@ -88,6 +103,17 @@ export default function Home() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => setUser(session?.user ?? null))
     return () => subscription.unsubscribe()
   }, [])
+
+  useEffect(() => {
+    const saved = typeof window !== 'undefined' ? window.localStorage.getItem('message-dark-mode') : null
+    if (saved === 'true') setDark(true)
+  }, [])
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('message-dark-mode', String(dark))
+    }
+  }, [dark])
 
   useEffect(() => {
     if (user) {
@@ -290,7 +316,22 @@ export default function Home() {
   }
 
   return (
-    <div style={{ height: '100vh', background: shell.bg, color: shell.text, fontFamily: 'Inter, -apple-system, sans-serif', display: 'flex' }}>
+    <div style={{
+      height: '100vh',
+      background: shell.bg,
+      color: shell.text,
+      fontFamily: 'Inter, -apple-system, sans-serif',
+      display: 'flex',
+      ['--bg' as any]: shell.bg,
+      ['--bg2' as any]: shell.bg2,
+      ['--bg3' as any]: shell.bg3,
+      ['--text' as any]: shell.text,
+      ['--text2' as any]: shell.text2,
+      ['--text3' as any]: shell.text3,
+      ['--border' as any]: shell.border,
+      ['--border-soft' as any]: shell.borderSoft,
+      ['--amber' as any]: shell.amber,
+    }}>
       {toast && <div style={{ position: 'fixed', bottom: 18, left: '50%', transform: 'translateX(-50%)', background: '#1a1a18', color: 'white', padding: '9px 16px', borderRadius: 10, fontSize: 12, zIndex: 60 }}>{toast}</div>}
 
       {saveModal && (
@@ -433,6 +474,9 @@ export default function Home() {
           <div style={{ display: 'flex', gap: 6 }}>
             <button onClick={() => setFontSize(v => Math.max(13, v - 1))} style={iconBtn()}>A-</button>
             <button onClick={() => setFontSize(v => Math.min(20, v + 1))} style={iconBtn()}>A+</button>
+            <button onClick={() => setDark(v => !v)} style={iconBtn()} title={dark ? 'Light mode' : 'Dark mode'}>
+              {dark ? '☀' : '☾'}
+            </button>
           </div>
         </div>
 
@@ -761,6 +805,13 @@ export default function Home() {
                   </>
                 )}
               </div>
+              <div style={{ ...resultCard(), marginTop: 10 }}>
+                <h3 style={{ fontSize: 14, marginBottom: 6 }}>Appearance</h3>
+                <p style={{ fontSize: 12.5, color: shell.text2, marginBottom: 8 }}>Switch between light and dark themes.</p>
+                <button onClick={() => setDark(v => !v)} style={secondaryBtn()}>
+                  {dark ? 'Switch to light mode' : 'Switch to dark mode'}
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -784,7 +835,9 @@ function inputStyle(extra: React.CSSProperties = {}): React.CSSProperties {
     width: '100%',
     padding: '10px 12px',
     borderRadius: 9,
-    border: '1px solid rgba(0,0,0,0.11)',
+    border: '1px solid var(--border)',
+    background: 'var(--bg)',
+    color: 'var(--text)',
     fontSize: 14,
     outline: 'none',
     fontFamily: 'inherit',
@@ -798,7 +851,7 @@ function primaryBtn(extra: React.CSSProperties = {}): React.CSSProperties {
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    background: '#c47a1a',
+    background: 'var(--amber)',
     color: 'white',
     border: 'none',
     borderRadius: 8,
@@ -817,9 +870,9 @@ function secondaryBtn(extra: React.CSSProperties = {}): React.CSSProperties {
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    background: '#f2f2f0',
-    color: '#5a5a56',
-    border: '1px solid rgba(0,0,0,0.08)',
+    background: 'var(--bg3)',
+    color: 'var(--text2)',
+    border: '1px solid var(--border)',
     borderRadius: 8,
     padding: '7px 10px',
     fontSize: 12.5,
@@ -845,9 +898,9 @@ function iconBtn(extra: React.CSSProperties = {}): React.CSSProperties {
     width: 30,
     height: 30,
     borderRadius: 8,
-    border: '1px solid rgba(0,0,0,0.08)',
-    background: 'white',
-    color: '#5a5a56',
+    border: '1px solid var(--border)',
+    background: 'var(--bg)',
+    color: 'var(--text2)',
     cursor: 'pointer',
     fontSize: 12,
     ...extra,
@@ -859,7 +912,7 @@ function navBtn(): React.CSSProperties {
     width: '100%',
     border: 'none',
     background: 'transparent',
-    color: '#5a5a56',
+    color: 'var(--text2)',
     textAlign: 'left',
     borderRadius: 8,
     padding: '8px 10px',
@@ -871,17 +924,17 @@ function navBtn(): React.CSSProperties {
 
 function resultCard(): React.CSSProperties {
   return {
-    border: '1px solid rgba(0,0,0,0.07)',
+    border: '1px solid var(--border)',
     borderRadius: 12,
-    background: 'white',
+    background: 'var(--bg)',
     padding: '14px 16px',
   }
 }
 
 function emptyCard(): React.CSSProperties {
   return {
-    border: '1px solid rgba(0,0,0,0.06)',
-    background: '#f9f9f8',
+    border: '1px solid var(--border)',
+    background: 'var(--bg2)',
     borderRadius: 14,
     padding: 22,
     textAlign: 'center',
