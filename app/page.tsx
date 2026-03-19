@@ -1,30 +1,75 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { supabase } from '@/lib/supabase'
 
-type Message = { role: string; content: string; sources?: any[] }
-type Folder = { id: string; name: string; color: string }
+type Message = { role: 'user' | 'assistant'; content: string; sources?: any[] }
+type Folder = { id: string; name: string; color: string; created_at?: string }
 type SavedQuote = { id: string; quote_text: string; source_title: string; source_date: string; folder_id: string | null }
 type SearchResult = { quote_text: string; source_title: string; source_date: string; source: 'message' | 'bible' }
 type SearchSource = 'both' | 'message' | 'bible'
+type View = 'chat' | 'folders' | 'sermons' | 'bible' | 'settings'
 
 const COLORS = ['#c47a1a', '#5b8dd9', '#7c6abf', '#4aab7c', '#d97b4a', '#e05c5c']
+const HISTORY = [
+  { label: 'Today', items: ['New birth quotes', 'Holy Ghost references'] },
+  { label: 'Yesterday', items: ['Bride passages', 'Healing scriptures'] },
+]
+
+const SERMONS = [
+  { id: '1', title: 'What Is The New Birth?', date: 'Jan 8, 1961', location: 'Jeffersonville, IN', preview: 'A foundational message on true conversion by the Holy Spirit.' },
+  { id: '2', title: 'The Spoken Word Is The Original Seed', date: 'Mar 18, 1962', location: 'Jeffersonville, IN', preview: 'How the original seed of God produces after its kind.' },
+  { id: '3', title: 'Shalom', date: 'Jan 12, 1964', location: 'Phoenix, AZ', preview: 'A message of peace and hope in a troubled hour.' },
+]
+
+const SERMON_PARAS = [
+  'The new birth is not joining a church. It is a spiritual birth from above.',
+  'Except a man be born again, he cannot see the kingdom of God. The Spirit must quicken the Word seed in the believer.',
+  'When a man is truly born again, old things pass away and a new life appears.'
+]
+
+const BIBLE_VERSES = [
+  { verse: 'John 3:3', text: 'Jesus answered and said unto him, Verily, verily, I say unto thee, Except a man be born again, he cannot see the kingdom of God.' },
+  { verse: 'John 3:5', text: 'Except a man be born of water and of the Spirit, he cannot enter into the kingdom of God.' },
+  { verse: 'Romans 8:16', text: 'The Spirit itself beareth witness with our spirit, that we are the children of God.' },
+]
+
+const shell = {
+  bg: '#ffffff',
+  bg2: '#f9f9f8',
+  bg3: '#f2f2f0',
+  sidebar: '#f7f7f5',
+  text: '#0d0d0c',
+  text2: '#5a5a56',
+  text3: '#a3a39e',
+  border: 'rgba(0,0,0,0.08)',
+  borderSoft: 'rgba(0,0,0,0.06)',
+  amber: '#c47a1a',
+}
 
 export default function Home() {
-  const [query, setQuery] = useState('')
-  const [mode, setMode] = useState('chat')
-  const [messages, setMessages] = useState<Message[]>([])
-  const [loading, setLoading] = useState(false)
-  const [copied, setCopied] = useState<number | null>(null)
-  const [tab, setTab] = useState<'chat' | 'folders'>('chat')
   const [user, setUser] = useState<any>(null)
   const [authMode, setAuthMode] = useState<'login' | 'signup' | null>(null)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [authError, setAuthError] = useState('')
   const [authLoading, setAuthLoading] = useState(false)
+
+  const [view, setView] = useState<View>('chat')
+  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [mode, setMode] = useState<'chat' | 'search'>('chat')
+  const [searchSource, setSearchSource] = useState<SearchSource>('both')
+  const [fontSize, setFontSize] = useState(14)
+  const [sidebarTab, setSidebarTab] = useState<'folders' | 'history'>('folders')
+  const [composerFocused, setComposerFocused] = useState(false)
+
+  const [query, setQuery] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [messages, setMessages] = useState<Message[]>([])
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([])
+  const [copied, setCopied] = useState<number | null>(null)
+
   const [folders, setFolders] = useState<Folder[]>([])
   const [savedQuotes, setSavedQuotes] = useState<SavedQuote[]>([])
   const [activeFolder, setActiveFolder] = useState<Folder | null>(null)
@@ -34,10 +79,9 @@ export default function Home() {
   const [saveModal, setSaveModal] = useState<{ text: string; title: string; date: string } | null>(null)
   const [saveFolderId, setSaveFolderId] = useState<string | null>(null)
   const [toast, setToast] = useState('')
-  const [searchResults, setSearchResults] = useState<SearchResult[]>([])
-  const [searchSource, setSearchSource] = useState<SearchSource>('both')
-  const endRef = useRef<HTMLDivElement>(null)
+
   const taRef = useRef<HTMLTextAreaElement>(null)
+  const endRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => setUser(session?.user ?? null))
@@ -45,48 +89,80 @@ export default function Home() {
     return () => subscription.unsubscribe()
   }, [])
 
-  useEffect(() => { if (user) { loadFolders(); loadQuotes() } }, [user])
-  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, loading])
   useEffect(() => {
-    if (taRef.current) { taRef.current.style.height = '24px'; taRef.current.style.height = Math.min(taRef.current.scrollHeight, 120) + 'px' }
+    if (user) {
+      loadFolders()
+      loadQuotes()
+    }
+  }, [user])
+
+  useEffect(() => {
+    if (taRef.current) {
+      taRef.current.style.height = '24px'
+      taRef.current.style.height = Math.min(taRef.current.scrollHeight, 120) + 'px'
+    }
   }, [query])
 
-  const loadFolders = async () => { const { data } = await supabase.from('folders').select('*').order('created_at'); setFolders(data || []) }
-  const loadQuotes = async () => { const { data } = await supabase.from('saved_quotes').select('*').order('created_at', { ascending: false }); setSavedQuotes(data || []) }
-  const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 2500) }
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages, searchResults, loading])
+
+  const loadFolders = async () => {
+    const { data } = await supabase.from('folders').select('*').order('created_at')
+    setFolders(data || [])
+  }
+
+  const loadQuotes = async () => {
+    const { data } = await supabase.from('saved_quotes').select('*').order('created_at', { ascending: false })
+    setSavedQuotes(data || [])
+  }
+
+  const showToast = (msg: string) => {
+    setToast(msg)
+    setTimeout(() => setToast(''), 2500)
+  }
 
   const signIn = async () => {
-    setAuthLoading(true); setAuthError('')
+    setAuthLoading(true)
+    setAuthError('')
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) setAuthError(error.message)
-    else { setAuthMode(null); setEmail(''); setPassword('') }
+    else {
+      setAuthMode(null)
+      setEmail('')
+      setPassword('')
+    }
     setAuthLoading(false)
   }
 
   const signUp = async () => {
-    setAuthLoading(true); setAuthError('')
+    setAuthLoading(true)
+    setAuthError('')
     const { error } = await supabase.auth.signUp({ email, password })
     if (error) setAuthError(error.message)
-    else { setAuthMode(null); setEmail(''); setPassword(''); showToast('Account created! You can now sign in.') }
+    else {
+      setAuthMode(null)
+      setEmail('')
+      setPassword('')
+      showToast('Account created')
+    }
     setAuthLoading(false)
   }
 
-  const signOut = async () => { await supabase.auth.signOut(); setFolders([]); setSavedQuotes([]); setActiveFolder(null) }
+  const signOut = async () => {
+    await supabase.auth.signOut()
+    setFolders([])
+    setSavedQuotes([])
+    setActiveFolder(null)
+  }
 
   const createFolder = async () => {
     if (!newFolderName.trim() || !user) return
-    const name = newFolderName.trim()
-    const { error } = await supabase.from('folders').insert({
-      name,
-      color: newFolderColor,
-      user_id: user.id,
-    })
-
+    const { error } = await supabase.from('folders').insert({ name: newFolderName.trim(), color: newFolderColor, user_id: user.id })
     if (error) {
       showToast(error.message || 'Failed to create folder')
       return
     }
-
     setNewFolderName('')
     setShowNewFolder(false)
     showToast('Folder created')
@@ -95,22 +171,70 @@ export default function Home() {
 
   const saveQuote = async () => {
     if (!saveModal || !user) return
-    const { error } = await supabase.from('saved_quotes').insert({ user_id: user.id, quote_text: saveModal.text, source_title: saveModal.title || 'William Branham Sermon', source_date: saveModal.date || '', source_type: 'message', folder_id: saveFolderId || null })
-    if (!error) { loadQuotes(); setSaveModal(null); setSaveFolderId(null); showToast('Quote saved!') }
+    const { error } = await supabase.from('saved_quotes').insert({
+      user_id: user.id,
+      quote_text: saveModal.text,
+      source_title: saveModal.title || 'William Branham Sermon',
+      source_date: saveModal.date || '',
+      source_type: 'message',
+      folder_id: saveFolderId || null,
+    })
+    if (!error) {
+      await loadQuotes()
+      setSaveModal(null)
+      setSaveFolderId(null)
+      showToast('Quote saved')
+    }
   }
 
-  const deleteQuote = async (id: string) => { await supabase.from('saved_quotes').delete().eq('id', id); setSavedQuotes(savedQuotes.filter(q => q.id !== id)); showToast('Quote removed') }
+  const deleteQuote = async (id: string) => {
+    await supabase.from('saved_quotes').delete().eq('id', id)
+    setSavedQuotes(savedQuotes.filter(q => q.id !== id))
+    showToast('Quote removed')
+  }
+
+  const getPlainTextFromNode = (node: any): string => {
+    if (node == null) return ''
+    if (typeof node === 'string' || typeof node === 'number') return String(node)
+    if (Array.isArray(node)) return node.map(getPlainTextFromNode).join('')
+    if (node.props?.children) return getPlainTextFromNode(node.props.children)
+    return ''
+  }
+
+  const extractSavableQuote = (content: string) => {
+    const lines = content.split('\n')
+    const firstQuoteLine = lines.findIndex(line => /^\s*>\s?/.test(line))
+    if (firstQuoteLine !== -1) {
+      const quoteLines: string[] = []
+      for (let i = firstQuoteLine; i < lines.length; i++) {
+        const line = lines[i]
+        if (!/^\s*>\s?/.test(line)) break
+        quoteLines.push(line.replace(/^\s*>\s?/, ''))
+      }
+      const quote = quoteLines.join('\n').trim()
+      if (quote) return quote
+    }
+    return content.replace(/\s+/g, ' ').trim().slice(0, 200)
+  }
+
+  const copyText = (text: string, i: number) => {
+    navigator.clipboard.writeText(text)
+    setCopied(i)
+    setTimeout(() => setCopied(null), 2000)
+  }
 
   const send = async () => {
     if (!query.trim() || loading) return
-    const q = query.trim(); setQuery(''); setLoading(true)
+    const q = query.trim()
+    setQuery('')
+    setLoading(true)
 
     if (mode === 'search') {
       try {
         const res = await fetch('/api/search', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ query: q, source: searchSource })
+          body: JSON.stringify({ query: q, source: searchSource }),
         })
         const data = await res.json()
         if (!res.ok) throw new Error(data?.error || 'Search failed')
@@ -123,339 +247,645 @@ export default function Home() {
       return
     }
 
-    const next = [...messages, { role: 'user', content: q }]; setMessages(next)
+    const next = [...messages, { role: 'user', content: q } as Message]
+    setMessages(next)
     try {
-      const res = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: q }) })
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: q }),
+      })
       const data = await res.json()
       setMessages([...next, { role: 'assistant', content: data.response, sources: data.sources }])
-    } catch { setMessages([...next, { role: 'assistant', content: 'Something went wrong.', sources: [] }]) }
+    } catch {
+      setMessages([...next, { role: 'assistant', content: 'Something went wrong.', sources: [] }])
+    }
     setLoading(false)
   }
 
-  const copyText = (text: string, i: number) => { navigator.clipboard.writeText(text); setCopied(i); setTimeout(() => setCopied(null), 2000) }
-  const getPlainTextFromNode = (node: any): string => {
-    if (node == null) return ''
-    if (typeof node === 'string' || typeof node === 'number') return String(node)
-    if (Array.isArray(node)) return node.map(getPlainTextFromNode).join('')
-    if (node.props?.children) return getPlainTextFromNode(node.props.children)
-    return ''
-  }
-  const extractSavableQuote = (content: string) => {
-    const lines = content.split('\n')
-    const firstQuoteLine = lines.findIndex(line => /^\s*>\s?/.test(line))
-
-    if (firstQuoteLine !== -1) {
-      const quoteLines: string[] = []
-      for (let i = firstQuoteLine; i < lines.length; i++) {
-        const line = lines[i]
-        if (!/^\s*>\s?/.test(line)) break
-        quoteLines.push(line.replace(/^\s*>\s?/, ''))
-      }
-      const quote = quoteLines.join('\n').trim()
-      if (quote) return quote
-    }
-
-    return content.replace(/\s+/g, ' ').trim().slice(0, 200)
-  }
-  const isEmpty = !messages.length && !loading
-  const amber = '#c47a1a'
-
-  if (authMode) return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#f9f9f8', fontFamily: 'Inter, sans-serif' }}>
-      <div style={{ width: 380, background: '#fff', borderRadius: 16, border: '1px solid rgba(0,0,0,0.08)', padding: 32, boxShadow: '0 4px 24px rgba(0,0,0,0.08)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 24 }}>
-          <div style={{ width: 32, height: 32, borderRadius: 9, background: amber, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <svg width="15" height="15" viewBox="0 0 20 20" fill="none"><path d="M10 2L3 5.5V10c0 4.1 3 7.7 7 8.5 4-.8 7-4.4 7-8.5V5.5L10 2z" stroke="white" strokeWidth="1.5" strokeLinejoin="round"/><path d="M7 10l2 2 4-4" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-          </div>
-          <span style={{ fontWeight: 600, fontSize: 16 }}>{authMode === 'login' ? 'Sign in' : 'Create account'}</span>
-        </div>
-        <input value={email} onChange={e => setEmail(e.target.value)} placeholder="Email" type="email" style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.12)', fontSize: 14, marginBottom: 10, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }} />
-        <input value={password} onChange={e => setPassword(e.target.value)} placeholder="Password" type="password" onKeyDown={e => e.key === 'Enter' && (authMode === 'login' ? signIn() : signUp())} style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.12)', fontSize: 14, marginBottom: 10, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }} />
-        {authError && <p style={{ color: '#dc3535', fontSize: 13, marginBottom: 10 }}>{authError}</p>}
-        <button onClick={authMode === 'login' ? signIn : signUp} disabled={authLoading} style={{ width: '100%', padding: 11, borderRadius: 8, background: amber, color: 'white', border: 'none', fontSize: 14, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit', marginBottom: 12 }}>
-          {authLoading ? 'Please wait...' : authMode === 'login' ? 'Sign in' : 'Create account'}
-        </button>
-        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-          <button onClick={() => setAuthMode(authMode === 'login' ? 'signup' : 'login')} style={{ background: 'none', border: 'none', color: amber, cursor: 'pointer', fontSize: 13, fontFamily: 'inherit' }}>{authMode === 'login' ? 'Create account' : 'Sign in instead'}</button>
-          <button onClick={() => setAuthMode(null)} style={{ background: 'none', border: 'none', color: '#a3a39e', cursor: 'pointer', fontSize: 13, fontFamily: 'inherit' }}>Cancel</button>
-        </div>
-      </div>
-    </div>
+  const filteredFolderQuotes = useMemo(
+    () => savedQuotes.filter(q => q.folder_id === activeFolder?.id),
+    [savedQuotes, activeFolder]
   )
 
+  if (authMode) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', background: shell.bg2, fontFamily: 'Inter, -apple-system, sans-serif' }}>
+        <div style={{ width: 380, background: shell.bg, borderRadius: 16, border: `1px solid ${shell.border}`, padding: 28, boxShadow: '0 6px 30px rgba(0,0,0,0.12)' }}>
+          <h2 style={{ fontSize: 18, marginBottom: 6 }}>{authMode === 'login' ? 'Sign in' : 'Create account'}</h2>
+          <p style={{ color: shell.text2, fontSize: 13, marginBottom: 16 }}>Access folders, saved quotes, and personalized history.</p>
+          <input value={email} onChange={e => setEmail(e.target.value)} placeholder="Email" type="email" style={inputStyle()} />
+          <input value={password} onChange={e => setPassword(e.target.value)} placeholder="Password" type="password" onKeyDown={e => e.key === 'Enter' && (authMode === 'login' ? signIn() : signUp())} style={inputStyle({ marginTop: 10 })} />
+          {authError && <p style={{ color: '#c53939', fontSize: 12, marginTop: 10 }}>{authError}</p>}
+          <button onClick={authMode === 'login' ? signIn : signUp} disabled={authLoading} style={primaryBtn({ width: '100%', marginTop: 14 })}>
+            {authLoading ? 'Please wait...' : authMode === 'login' ? 'Sign in' : 'Create account'}
+          </button>
+          <div style={{ marginTop: 10, display: 'flex', justifyContent: 'space-between' }}>
+            <button onClick={() => setAuthMode(authMode === 'login' ? 'signup' : 'login')} style={textBtn(shell.amber)}>{authMode === 'login' ? 'Create account' : 'Sign in instead'}</button>
+            <button onClick={() => setAuthMode(null)} style={textBtn(shell.text3)}>Cancel</button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', fontFamily: 'Inter, -apple-system, sans-serif', background: '#fff', color: '#0d0d0c' }}>
-      {toast && <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: '#1a1a18', color: 'white', padding: '10px 20px', borderRadius: 10, fontSize: 13, zIndex: 200 }}>{toast}</div>}
+    <div style={{ height: '100vh', background: shell.bg, color: shell.text, fontFamily: 'Inter, -apple-system, sans-serif', display: 'flex' }}>
+      {toast && <div style={{ position: 'fixed', bottom: 18, left: '50%', transform: 'translateX(-50%)', background: '#1a1a18', color: 'white', padding: '9px 16px', borderRadius: 10, fontSize: 12, zIndex: 60 }}>{toast}</div>}
+
       {saveModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
-          <div style={{ width: 380, background: '#fff', borderRadius: 16, padding: 24 }}>
-            <h3 style={{ fontWeight: 600, fontSize: 15, marginBottom: 16 }}>Save quote</h3>
-            <p style={{ fontSize: 13, color: '#5a5a56', fontStyle: 'italic', borderLeft: '2px solid ' + amber, paddingLeft: 10, marginBottom: 16, lineHeight: 1.6 }}>"{saveModal.text.slice(0, 120)}{saveModal.text.length > 120 ? '...' : ''}"</p>
+        <div style={{ position: 'fixed', inset: 0, zIndex: 70, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.35)' }}>
+          <div style={{ width: 400, background: shell.bg, borderRadius: 14, border: `1px solid ${shell.border}`, padding: 18 }}>
+            <h3 style={{ fontSize: 15, marginBottom: 10 }}>Save quote</h3>
+            <p style={{ fontSize: 12.5, color: shell.text2, borderLeft: `2px solid ${shell.amber}`, paddingLeft: 10, fontStyle: 'italic', marginBottom: 14 }}>
+              "{saveModal.text.slice(0, 180)}{saveModal.text.length > 180 ? '...' : ''}"
+            </p>
             {folders.length > 0 && (
-              <div style={{ marginBottom: 16 }}>
-                <p style={{ fontSize: 12, fontWeight: 500, color: '#5a5a56', marginBottom: 8 }}>Add to folder (optional)</p>
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  {folders.map(f => <button key={f.id} onClick={() => setSaveFolderId(saveFolderId === f.id ? null : f.id)} style={{ padding: '5px 12px', borderRadius: 20, border: '1px solid ' + (saveFolderId === f.id ? f.color : 'rgba(0,0,0,0.1)'), background: saveFolderId === f.id ? f.color + '20' : 'transparent', color: saveFolderId === f.id ? f.color : '#5a5a56', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>{f.name}</button>)}
+              <div style={{ marginBottom: 14 }}>
+                <p style={{ fontSize: 11, color: shell.text3, marginBottom: 8 }}>Save to folder (optional)</p>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {folders.map(f => (
+                    <button key={f.id} onClick={() => setSaveFolderId(saveFolderId === f.id ? null : f.id)} style={{
+                      padding: '5px 10px',
+                      borderRadius: 999,
+                      fontSize: 11.5,
+                      border: `1px solid ${saveFolderId === f.id ? f.color : shell.border}`,
+                      background: saveFolderId === f.id ? `${f.color}22` : 'transparent',
+                      color: saveFolderId === f.id ? f.color : shell.text2,
+                      cursor: 'pointer',
+                    }}>{f.name}</button>
+                  ))}
                 </div>
               </div>
             )}
             <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={saveQuote} style={{ flex: 1, padding: 10, borderRadius: 8, background: amber, color: 'white', border: 'none', fontSize: 14, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}>Save</button>
-              <button onClick={() => { setSaveModal(null); setSaveFolderId(null) }} style={{ flex: 1, padding: 10, borderRadius: 8, background: '#f2f2f0', color: '#5a5a56', border: 'none', fontSize: 14, cursor: 'pointer', fontFamily: 'inherit' }}>Cancel</button>
+              <button onClick={saveQuote} style={primaryBtn({ flex: 1 })}>Save</button>
+              <button onClick={() => { setSaveModal(null); setSaveFolderId(null) }} style={secondaryBtn({ flex: 1 })}>Cancel</button>
             </div>
           </div>
         </div>
       )}
 
-      <div style={{ height: 52, borderBottom: '1px solid rgba(0,0,0,0.07)', display: 'flex', alignItems: 'center', padding: '0 20px', gap: 10, flexShrink: 0 }}>
-        <div style={{ width: 28, height: 28, borderRadius: 9, background: amber, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-          <svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M10 2L3 5.5V10c0 4.1 3 7.7 7 8.5 4-.8 7-4.4 7-8.5V5.5L10 2z" stroke="white" strokeWidth="1.5" strokeLinejoin="round"/><path d="M7 10l2 2 4-4" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-        </div>
-        <span style={{ fontWeight: 600, fontSize: 15, letterSpacing: '-0.02em' }}>The Message Search</span>
-        <div style={{ flex: 1 }} />
-        {['chat', 'folders'].map(t => <button key={t} onClick={() => setTab(t as any)} style={{ padding: '5px 14px', borderRadius: 8, background: tab === t ? '#f2f2f0' : 'transparent', color: tab === t ? '#0d0d0c' : '#a3a39e', fontSize: 13, fontWeight: tab === t ? 500 : 400, border: 'none', cursor: 'pointer', fontFamily: 'inherit', textTransform: 'capitalize' }}>{t}</button>)}
-        <div style={{ width: 1, height: 20, background: 'rgba(0,0,0,0.1)', margin: '0 4px' }} />
-        {user ? <button onClick={signOut} style={{ padding: '5px 12px', borderRadius: 8, background: 'transparent', color: '#a3a39e', fontSize: 13, border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}>Sign out</button>
-          : <button onClick={() => setAuthMode('login')} style={{ padding: '5px 14px', borderRadius: 8, background: amber, color: 'white', fontSize: 13, fontWeight: 500, border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}>Sign in</button>}
-      </div>
-
-      {tab === 'folders' && (
-        <div style={{ flex: 1, overflowY: 'auto', padding: '24px 20px' }}>
-          <div style={{ maxWidth: 720, margin: '0 auto' }}>
-            {!user ? (
-              <div style={{ textAlign: 'center', paddingTop: 80 }}>
-                <p style={{ color: '#5a5a56', marginBottom: 16 }}>Sign in to save quotes and create folders.</p>
-                <button onClick={() => setAuthMode('login')} style={{ padding: '10px 24px', borderRadius: 8, background: amber, color: 'white', border: 'none', fontSize: 14, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit' }}>Sign in</button>
+      <aside style={{
+        width: sidebarOpen ? 250 : 0,
+        minWidth: sidebarOpen ? 250 : 0,
+        transition: 'all .2s',
+        overflow: 'hidden',
+        background: shell.sidebar,
+        borderRight: `1px solid ${shell.borderSoft}`,
+        display: 'flex',
+        flexDirection: 'column',
+      }}>
+        <div style={{ width: 250, height: '100%', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ padding: '14px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={{ width: 27, height: 27, borderRadius: 8, background: shell.amber, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: 12 }}>
+                <svg width="13" height="13" viewBox="0 0 20 20" fill="none"><path d="M10 2L3 5.5V10c0 4.1 3 7.7 7 8.5 4-.8 7-4.4 7-8.5V5.5L10 2z" stroke="white" strokeWidth="1.5" strokeLinejoin="round"/><path d="M7 10l2 2 4-4" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
               </div>
-            ) : activeFolder ? (
+              <strong style={{ fontSize: 14 }}>Message</strong>
+            </div>
+            <button onClick={() => setSidebarOpen(false)} style={iconBtn()}>✕</button>
+          </div>
+
+          <div style={{ padding: '0 10px 10px' }}>
+            <button onClick={() => { setView('chat'); setMessages([]); setSearchResults([]) }} style={secondaryBtn({ width: '100%', justifyContent: 'center' })}>+ New search</button>
+          </div>
+
+          <div style={{ padding: '0 10px 8px', display: 'flex', gap: 2 }}>
+            {[
+              ['folders', 'Folders'],
+              ['history', 'History']
+            ].map(([id, label]) => (
+              <button key={id} onClick={() => setSidebarTab(id as 'folders' | 'history')} style={{
+                ...secondaryBtn({ flex: 1, height: 28, padding: 0, fontSize: 12 }),
+                background: sidebarTab === id ? shell.bg : 'transparent',
+                border: sidebarTab === id ? `1px solid ${shell.border}` : '1px solid transparent',
+              }}>{label}</button>
+            ))}
+          </div>
+
+          <div style={{ padding: '0 6px', display: 'grid', gap: 2 }}>
+            {[
+              ['chat', 'Chat'],
+              ['folders', 'Folders'],
+              ['sermons', 'Sermon Library'],
+              ['bible', 'Bible Reader'],
+              ['settings', 'Settings'],
+            ].map(([id, label]) => (
+              <button key={id} onClick={() => setView(id as View)} style={{
+                ...navBtn(),
+                background: view === id ? shell.bg : 'transparent',
+                color: view === id ? shell.text : shell.text2,
+              }}>{label}</button>
+            ))}
+          </div>
+
+          <div style={{ padding: '8px 8px', flex: 1, overflowY: 'auto' }}>
+            {sidebarTab === 'folders' ? (
               <>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 24 }}>
-                  <button onClick={() => setActiveFolder(null)} style={{ background: 'none', border: 'none', color: amber, cursor: 'pointer', fontSize: 14, fontFamily: 'inherit' }}>← Folders</button>
-                  <div style={{ width: 10, height: 10, borderRadius: 3, background: activeFolder.color }} />
-                  <span style={{ fontWeight: 600, fontSize: 17 }}>{activeFolder.name}</span>
-                </div>
-                {savedQuotes.filter(q => q.folder_id === activeFolder.id).length === 0
-                  ? <p style={{ color: '#a3a39e', fontSize: 14 }}>No quotes saved here yet.</p>
-                  : savedQuotes.filter(q => q.folder_id === activeFolder.id).map(q => (
-                    <div key={q.id} style={{ marginBottom: 12, padding: '14px 16px', borderRadius: 12, border: '1px solid rgba(0,0,0,0.07)' }}>
-                      <p style={{ fontSize: 13.5, fontStyle: 'italic', borderLeft: '2px solid ' + amber, paddingLeft: 10, marginBottom: 10, lineHeight: 1.7 }}>"{q.quote_text}"</p>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div><p style={{ fontSize: 12, fontWeight: 500, color: amber }}>{q.source_title}</p><p style={{ fontSize: 11, color: '#a3a39e' }}>{q.source_date}</p></div>
-                        <button onClick={() => deleteQuote(q.id)} style={{ background: 'none', border: 'none', color: '#a3a39e', cursor: 'pointer', fontSize: 12, fontFamily: 'inherit' }}>Remove</button>
-                      </div>
-                    </div>
-                  ))}
+                {folders.map(f => (
+                  <button key={f.id} onClick={() => { setView('folders'); setActiveFolder(f) }} style={{ ...navBtn(), display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+                    <span style={{ width: 9, height: 9, borderRadius: 3, background: f.color, flexShrink: 0 }} />
+                    <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                    <span style={{ fontSize: 10.5, color: shell.text3 }}>{savedQuotes.filter(q => q.folder_id === f.id).length}</span>
+                  </button>
+                ))}
               </>
             ) : (
               <>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-                  <h2 style={{ fontWeight: 600, fontSize: 17 }}>Folders</h2>
-                  <button onClick={() => setShowNewFolder(true)} style={{ padding: '6px 14px', borderRadius: 8, background: '#f2f2f0', border: 'none', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}>+ New folder</button>
-                </div>
-                {showNewFolder && (
-                  <div style={{ marginBottom: 16, padding: 16, borderRadius: 12, border: '1px solid rgba(0,0,0,0.1)', background: '#f9f9f8' }}>
-                    <input value={newFolderName} onChange={e => setNewFolderName(e.target.value)} placeholder="Folder name" onKeyDown={e => e.key === 'Enter' && createFolder()} style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.12)', fontSize: 14, marginBottom: 10, outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }} />
-                    <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
-                      {COLORS.map(c => <button key={c} onClick={() => setNewFolderColor(c)} style={{ width: 24, height: 24, borderRadius: '50%', background: c, border: newFolderColor === c ? '2px solid #0d0d0c' : '2px solid transparent', cursor: 'pointer' }} />)}
-                    </div>
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <button onClick={createFolder} style={{ padding: '7px 16px', borderRadius: 8, background: amber, color: 'white', border: 'none', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}>Create</button>
-                      <button onClick={() => setShowNewFolder(false)} style={{ padding: '7px 16px', borderRadius: 8, background: 'transparent', color: '#a3a39e', border: 'none', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}>Cancel</button>
-                    </div>
-                  </div>
-                )}
-                {folders.length === 0 ? <p style={{ color: '#a3a39e', fontSize: 14 }}>No folders yet. Create one to start saving quotes.</p> : (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                    {folders.map(f => {
-                      const count = savedQuotes.filter(q => q.folder_id === f.id).length
-                      return (
-                        <div key={f.id} onClick={() => setActiveFolder(f)} style={{ padding: 16, borderRadius: 12, border: '1px solid rgba(0,0,0,0.07)', cursor: 'pointer' }}>
-                          <div style={{ width: 32, height: 32, borderRadius: 8, background: f.color + '20', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 10 }}>
-                            <div style={{ width: 12, height: 12, borderRadius: 3, background: f.color }} />
-                          </div>
-                          <p style={{ fontWeight: 500, fontSize: 14, marginBottom: 2 }}>{f.name}</p>
-                          <p style={{ fontSize: 12, color: '#a3a39e' }}>{count} quote{count !== 1 ? 's' : ''}</p>
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-                {savedQuotes.filter(q => !q.folder_id).length > 0 && (
-                  <div style={{ marginTop: 28 }}>
-                    <h3 style={{ fontSize: 12, fontWeight: 600, color: '#a3a39e', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 12 }}>Unsorted</h3>
-                    {savedQuotes.filter(q => !q.folder_id).map(q => (
-                      <div key={q.id} style={{ marginBottom: 10, padding: '12px 14px', borderRadius: 10, border: '1px solid rgba(0,0,0,0.07)' }}>
-                        <p style={{ fontSize: 13, fontStyle: 'italic', borderLeft: '2px solid ' + amber, paddingLeft: 10, marginBottom: 8, lineHeight: 1.65 }}>"{q.quote_text.slice(0, 100)}{q.quote_text.length > 100 ? '...' : ''}"</p>
-                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                          <p style={{ fontSize: 11, color: '#a3a39e' }}>{q.source_title}</p>
-                          <button onClick={() => deleteQuote(q.id)} style={{ background: 'none', border: 'none', color: '#a3a39e', cursor: 'pointer', fontSize: 11, fontFamily: 'inherit' }}>Remove</button>
-                        </div>
-                      </div>
+                {HISTORY.map(group => (
+                  <div key={group.label} style={{ marginBottom: 6 }}>
+                    <div style={{ fontSize: 10.5, color: shell.text3, textTransform: 'uppercase', letterSpacing: '0.06em', padding: '8px 8px 3px' }}>{group.label}</div>
+                    {group.items.map(item => (
+                      <button key={item} onClick={() => setView('chat')} style={{ ...navBtn(), marginBottom: 2 }}>{item}</button>
                     ))}
                   </div>
-                )}
+                ))}
+              </>
+            )}
+          </div>
+
+          <div style={{ marginTop: 'auto', borderTop: `1px solid ${shell.borderSoft}`, padding: 10 }}>
+            {!user ? (
+              <>
+                <p style={{ fontSize: 11.5, color: shell.text3, marginBottom: 8, lineHeight: 1.5 }}>
+                  Sign in to save quotes, organize folders, and persist your history.
+                </p>
+                <button onClick={() => setAuthMode('login')} style={primaryBtn({ width: '100%', marginBottom: 6, fontSize: 12 })}>Sign in</button>
+                <button onClick={() => setAuthMode('signup')} style={secondaryBtn({ width: '100%', fontSize: 12 })}>Create account</button>
+              </>
+            ) : (
+              <>
+                <div style={{ fontSize: 12, color: shell.text2, marginBottom: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.email}</div>
+                <button onClick={signOut} style={secondaryBtn({ width: '100%' })}>Sign out</button>
               </>
             )}
           </div>
         </div>
-      )}
+      </aside>
 
-      {tab === 'chat' && (
-        <>
-          <div style={{ flex: 1, overflowY: 'auto', padding: '0 20px' }}>
-            <div style={{ maxWidth: 720, margin: '0 auto' }}>
-              {mode === 'chat' && isEmpty && (
-                <div style={{ paddingTop: 80, textAlign: 'center' }}>
-                  <div style={{ width: 52, height: 52, borderRadius: 16, background: amber, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
-                    <svg width="24" height="24" viewBox="0 0 20 20" fill="none"><path d="M10 2L3 5.5V10c0 4.1 3 7.7 7 8.5 4-.8 7-4.4 7-8.5V5.5L10 2z" stroke="white" strokeWidth="1.5" strokeLinejoin="round"/><path d="M7 10l2 2 4-4" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                  </div>
-                  <h1 style={{ fontSize: 22, fontWeight: 600, letterSpacing: '-0.03em', marginBottom: 8 }}>The Message Search</h1>
-                  <p style={{ color: '#5a5a56', fontSize: 14, lineHeight: 1.65, maxWidth: 400, margin: '0 auto 40px' }}>Ask questions and search William Branham's sermons and the KJV Bible.</p>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 480, margin: '0 auto', textAlign: 'left' }}>
-                    {['What did Branham teach about the new birth?', 'What is the token of the blood?', 'What did Branham say about healing?'].map((q, i) => (
-                      <button key={i} onClick={() => setQuery(q)} style={{ padding: '12px 16px', borderRadius: 10, border: '1px solid rgba(0,0,0,0.07)', background: '#f9f9f8', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' }}>
-                        <div style={{ fontSize: 10.5, fontWeight: 600, color: amber, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 3 }}>Chat</div>
-                        <div style={{ fontSize: 13.5, color: '#5a5a56' }}>{q}</div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-              <div style={{ paddingTop: 24, paddingBottom: 16 }}>
+      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        <div style={{ height: 50, borderBottom: `1px solid ${shell.borderSoft}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 14px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {!sidebarOpen && <button onClick={() => setSidebarOpen(true)} style={iconBtn()}>☰</button>}
+            <div style={{ fontSize: 13, color: shell.text2 }}>{viewTitle(view)}</div>
+          </div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button onClick={() => setFontSize(v => Math.max(13, v - 1))} style={iconBtn()}>A-</button>
+            <button onClick={() => setFontSize(v => Math.min(20, v + 1))} style={iconBtn()}>A+</button>
+          </div>
+        </div>
+
+        {view === 'chat' && (
+          <>
+            <div style={{ flex: 1, overflowY: 'auto', padding: '18px 20px' }}>
+              <div style={{ maxWidth: 760, margin: '0 auto' }}>
                 {mode === 'search' ? (
                   <>
-                    {searchResults.length === 0 && !loading ? (
-                      <p style={{ color: '#a3a39e', fontSize: 14 }}>Search for sermon passages or Bible verses to see raw quote matches.</p>
-                    ) : (
-                      searchResults.map((r, i) => (
-                        <div key={i} style={{ marginBottom: 12, padding: '14px 16px', borderRadius: 12, border: '1px solid rgba(0,0,0,0.07)' }}>
-                          <p style={{ fontSize: 13.5, fontStyle: 'italic', borderLeft: '2px solid ' + amber, paddingLeft: 10, marginBottom: 10, lineHeight: 1.7 }}>"{r.quote_text}"</p>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <div>
-                              <p style={{ fontSize: 12, fontWeight: 500, color: amber }}>{r.source_title || (r.source === 'bible' ? 'KJV Bible' : 'William Branham Sermon')}</p>
-                              <p style={{ fontSize: 11, color: '#a3a39e' }}>{r.source_date || ''}</p>
-                            </div>
-                            <div style={{ padding: '3px 8px', borderRadius: 999, background: '#f2f2f0', color: '#5a5a56', fontSize: 11, textTransform: 'capitalize' }}>{r.source}</div>
+                    {searchResults.length === 0 && !loading && (
+                      <div style={emptyCard()}>
+                        <h2 style={{ marginBottom: 6 }}>Search quotes directly</h2>
+                        <p style={{ color: shell.text2, fontSize: 13 }}>Use Search mode for exact raw results from sermon and Bible tables.</p>
+                      </div>
+                    )}
+                    {searchResults.map((r, i) => (
+                      <div key={i} style={resultCard()}>
+                        <p style={{ borderLeft: `2px solid ${shell.amber}`, paddingLeft: 12, fontStyle: 'italic', color: shell.text2, lineHeight: 1.7, fontSize: 13 + (fontSize - 14), fontFamily: 'Merriweather, Georgia, serif' }}>
+                          "{r.quote_text}"
+                        </p>
+                        <div style={{ marginTop: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+                          <div>
+                            <div style={{ fontSize: 12, fontWeight: 600 }}>{r.source_title || (r.source === 'bible' ? 'KJV Bible' : 'William Branham Sermon')}</div>
+                            <div style={{ fontSize: 11, color: shell.text3 }}>{r.source_date || (r.source === 'bible' ? 'King James Version' : '')}</div>
+                          </div>
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <button onClick={() => { if (!user) { showToast('Sign in to save quotes'); return }; setSaveModal({ text: r.quote_text, title: r.source_title, date: r.source_date || '' }) }} style={secondaryBtn({ fontSize: 11, padding: '5px 8px' })}>Save</button>
+                            <span style={{ fontSize: 10.5, color: shell.text2, background: shell.bg3, borderRadius: 999, padding: '4px 8px', textTransform: 'capitalize' }}>{r.source}</span>
                           </div>
                         </div>
-                      ))
-                    )}
+                      </div>
+                    ))}
                   </>
-                ) : messages.map((m, i) => (
-                  <div key={i} style={{ marginBottom: 24 }}>
-                    {m.role === 'user' ? (
-                      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                        <div style={{ background: '#1a1a18', color: '#f2f2ef', borderRadius: 18, borderBottomRightRadius: 4, padding: '10px 16px', maxWidth: '75%', fontSize: 14.5, lineHeight: 1.55 }}>{m.content}</div>
-                      </div>
-                    ) : (
-                      <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                        <div style={{ width: 28, height: 28, borderRadius: 8, background: amber, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2 }}>
-                          <svg width="13" height="13" viewBox="0 0 20 20" fill="none"><path d="M10 2L3 5.5V10c0 4.1 3 7.7 7 8.5 4-.8 7-4.4 7-8.5V5.5L10 2z" stroke="white" strokeWidth="1.5" strokeLinejoin="round"/></svg>
-                        </div>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 14.5, lineHeight: 1.75, color: '#0d0d0c' }}>
-                            <ReactMarkdown components={{
-                              p: ({children}) => <p style={{ marginBottom: 10, lineHeight: 1.75, fontWeight: 400 }}>{children}</p>,
-                              h2: ({children}) => <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 6, marginTop: 14 }}>{children}</h2>,
-                              h3: ({children}) => <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 4, marginTop: 12 }}>{children}</h3>,
-                              blockquote: ({children}) => {
-                                const quoteText = getPlainTextFromNode(children).trim()
-                                return (
-                                  <div style={{ position: 'relative', margin: '12px 0' }}>
-                                    <blockquote style={{ borderLeft: '2.5px solid ' + amber, paddingLeft: 14, paddingRight: 30, fontStyle: 'italic', color: '#5a5a56', fontSize: 14, lineHeight: 1.75, margin: 0 }}>
-                                      {children}
-                                    </blockquote>
-                                    <button
-                                      onClick={() => {
-                                        if (!user) { showToast('Sign in to save quotes'); return }
-                                        if (!quoteText) return
-                                        setSaveModal({
-                                          text: quoteText,
-                                          title: m.sources?.[0]?.title || 'William Branham Sermon',
-                                          date: m.sources?.[0]?.date || ''
-                                        })
-                                      }}
-                                      style={{ position: 'absolute', top: 2, right: 0, width: 24, height: 24, borderRadius: 6, border: '1px solid rgba(0,0,0,0.08)', background: 'transparent', color: '#a3a39e', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                                      title="Save this quote"
-                                      aria-label="Save this quote"
-                                    >
-                                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="m19 21-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
-                                    </button>
-                                  </div>
-                                )
-                              },
-                              strong: ({children}) => <strong style={{ fontWeight: 600 }}>{children}</strong>,
-                              ul: ({children}) => <ul style={{ paddingLeft: 20, marginBottom: 10 }}>{children}</ul>,
-                              li: ({children}) => <li style={{ marginBottom: 4, lineHeight: 1.65 }}>{children}</li>,
-                            }}>{m.content || ''}</ReactMarkdown>
-                          </div>
-                          {m.sources && m.sources.length > 0 && (
-                            <div style={{ marginTop: 14, display: 'flex', gap: 7, flexWrap: 'wrap' }}>
-                              {m.sources.map((s: any, k: number) => (
-                                <div key={k} style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid rgba(0,0,0,0.08)', background: '#f9f9f8', fontSize: 12 }}>
-                                  <div style={{ fontWeight: 500 }}>{s.title || 'William Branham Sermon'}</div>
-                                  <div style={{ color: '#a3a39e', marginTop: 1 }}>{s.date ? s.date.slice(0, 4) : ''}</div>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                          <div style={{ display: 'flex', gap: 6, marginTop: 12 }}>
-                            <button onClick={() => copyText(m.content, i)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.08)', background: 'transparent', color: copied === i ? amber : '#a3a39e', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>
-                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                              {copied === i ? 'Copied' : 'Copy'}
-                            </button>
-                            <button onClick={() => { if (!user) { showToast('Sign in to save quotes'); return }; setSaveModal({ text: extractSavableQuote(m.content || ''), title: m.sources?.[0]?.title || 'William Branham Sermon', date: m.sources?.[0]?.date || '' }) }} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.08)', background: 'transparent', color: '#a3a39e', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>
-                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="m19 21-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
-                              Save
-                            </button>
-                          </div>
-                        </div>
+                ) : (
+                  <>
+                    {!messages.length && !loading && (
+                      <div style={emptyCard()}>
+                        <h1 style={{ fontSize: 24, marginBottom: 8 }}>The Message Search</h1>
+                        <p style={{ color: shell.text2, fontSize: 14 }}>Chat for synthesized answers, or switch to Search for raw quotes from sermons and Scripture.</p>
                       </div>
                     )}
-                  </div>
-                ))}
-                {loading && (
-                  <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                    <div style={{ width: 28, height: 28, borderRadius: 8, background: amber, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                      <svg width="13" height="13" viewBox="0 0 20 20" fill="none"><path d="M10 2L3 5.5V10c0 4.1 3 7.7 7 8.5 4-.8 7-4.4 7-8.5V5.5L10 2z" stroke="white" strokeWidth="1.5" strokeLinejoin="round"/></svg>
-                    </div>
-                    <div style={{ display: 'flex', gap: 5, padding: '10px 0' }}>
-                      {[0,1,2].map(j => <div key={j} style={{ width: 7, height: 7, borderRadius: '50%', background: amber, opacity: 0.4 }} />)}
-                    </div>
-                  </div>
+                    {messages.map((m, i) => (
+                      <div key={i} style={{ marginBottom: 22 }}>
+                        {m.role === 'user' ? (
+                          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                            <div style={{ maxWidth: '76%', background: '#1a1a18', color: '#f6f6f4', borderRadius: 16, borderBottomRightRadius: 4, padding: '10px 14px', lineHeight: 1.6, fontSize }}>
+                              {m.content}
+                            </div>
+                          </div>
+                        ) : (
+                          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                            <div style={{ width: 28, height: 28, borderRadius: 8, background: shell.amber, color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                              <svg width="13" height="13" viewBox="0 0 20 20" fill="none"><path d="M10 2L3 5.5V10c0 4.1 3 7.7 7 8.5 4-.8 7-4.4 7-8.5V5.5L10 2z" stroke="white" strokeWidth="1.5" strokeLinejoin="round"/></svg>
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize, lineHeight: 1.75 }}>
+                                <ReactMarkdown components={{
+                                  p: ({ children }) => <p style={{ marginBottom: 10 }}>{children}</p>,
+                                  h2: ({ children }) => <h2 style={{ fontSize: 16, marginTop: 14, marginBottom: 8 }}>{children}</h2>,
+                                  h3: ({ children }) => <h3 style={{ fontSize: 14, marginTop: 12, marginBottom: 6 }}>{children}</h3>,
+                                  ul: ({ children }) => <ul style={{ paddingLeft: 20, marginBottom: 10 }}>{children}</ul>,
+                                  li: ({ children }) => <li style={{ marginBottom: 4 }}>{children}</li>,
+                                  blockquote: ({ children }) => {
+                                    const quoteText = getPlainTextFromNode(children).trim()
+                                    return (
+                                      <div style={{ position: 'relative', margin: '12px 0' }}>
+                                        <blockquote style={{ margin: 0, borderLeft: `2.5px solid ${shell.amber}`, paddingLeft: 14, paddingRight: 30, color: shell.text2, fontStyle: 'italic', fontFamily: 'Merriweather, Georgia, serif' }}>
+                                          {children}
+                                        </blockquote>
+                                        <button
+                                          onClick={() => {
+                                            if (!user) { showToast('Sign in to save quotes'); return }
+                                            if (!quoteText) return
+                                            setSaveModal({
+                                              text: quoteText,
+                                              title: m.sources?.[0]?.title || 'William Branham Sermon',
+                                              date: m.sources?.[0]?.date || '',
+                                            })
+                                          }}
+                                          style={{ ...iconBtn(), position: 'absolute', right: 0, top: 0, width: 24, height: 24 }}
+                                          title="Save this quote"
+                                        >
+                                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="m19 21-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+                                        </button>
+                                      </div>
+                                    )
+                                  },
+                                }}>{m.content || ''}</ReactMarkdown>
+                              </div>
+
+                              {m.sources && m.sources.length > 0 && (
+                                <div style={{ marginTop: 10, display: 'flex', gap: 7, flexWrap: 'wrap' }}>
+                                  {m.sources.map((s: any, k: number) => (
+                                    <div key={k} style={{ padding: '6px 10px', borderRadius: 9, border: `1px solid ${shell.border}`, background: shell.bg2 }}>
+                                      <div style={{ fontSize: 12, fontWeight: 500 }}>{s.title || 'William Branham Sermon'}</div>
+                                      <div style={{ fontSize: 11, color: shell.text3 }}>{s.date || ''}</div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+
+                              <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
+                                <button onClick={() => copyText(m.content, i)} style={secondaryBtn({ fontSize: 11.5, padding: '5px 10px' })}>{copied === i ? 'Copied' : 'Copy'}</button>
+                                <button onClick={() => {
+                                  if (!user) { showToast('Sign in to save quotes'); return }
+                                  setSaveModal({
+                                    text: extractSavableQuote(m.content || ''),
+                                    title: m.sources?.[0]?.title || 'William Branham Sermon',
+                                    date: m.sources?.[0]?.date || '',
+                                  })
+                                }} style={secondaryBtn({ fontSize: 11.5, padding: '5px 10px' })}>Save</button>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </>
                 )}
+                {loading && <p style={{ color: shell.text3, fontSize: 13 }}>Loading...</p>}
                 <div ref={endRef} />
               </div>
             </div>
-          </div>
-          <div style={{ borderTop: '1px solid rgba(0,0,0,0.07)', padding: '12px 20px 20px', flexShrink: 0 }}>
-            <div style={{ maxWidth: 720, margin: '0 auto' }}>
-              <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-                <div style={{ display: 'flex', background: '#f2f2f0', borderRadius: 8, padding: 3, gap: 2 }}>
-                  {[{ id: 'chat', label: 'Chat' }, { id: 'search', label: 'Search' }].map(m => (
-                    <button key={m.id} onClick={() => setMode(m.id)} style={{ padding: '5px 16px', borderRadius: 6, background: mode === m.id ? (m.id === 'chat' ? amber : '#fff') : 'transparent', color: mode === m.id ? (m.id === 'chat' ? 'white' : '#0d0d0c') : '#a3a39e', fontSize: 13, fontWeight: mode === m.id ? 500 : 400, border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}>{m.label}</button>
-                  ))}
-                </div>
-                {mode === 'search' && (
-                  <div style={{ display: 'flex', background: '#f2f2f0', borderRadius: 8, padding: 3, gap: 2 }}>
-                    {[{ id: 'both', label: 'Both' }, { id: 'message', label: 'Message' }, { id: 'bible', label: 'Bible' }].map(s => (
-                      <button key={s.id} onClick={() => setSearchSource(s.id as SearchSource)} style={{ padding: '5px 12px', borderRadius: 6, background: searchSource === s.id ? '#fff' : 'transparent', color: searchSource === s.id ? '#0d0d0c' : '#a3a39e', fontSize: 12, fontWeight: searchSource === s.id ? 500 : 400, border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}>{s.label}</button>
+
+            <div style={{ borderTop: `1px solid ${shell.borderSoft}`, padding: '12px 20px 18px' }}>
+              <div style={{ maxWidth: 760, margin: '0 auto' }}>
+                <div style={{ display: 'flex', gap: 6, marginBottom: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', background: shell.bg3, borderRadius: 9, padding: 3, gap: 2 }}>
+                    {[{ id: 'chat', label: 'Chat' }, { id: 'search', label: 'Search' }].map(m => (
+                      <button key={m.id} onClick={() => setMode(m.id as 'chat' | 'search')} style={{
+                        padding: '5px 14px',
+                        borderRadius: 7,
+                        border: 'none',
+                        cursor: 'pointer',
+                        background: mode === m.id ? (m.id === 'chat' ? shell.amber : shell.bg) : 'transparent',
+                        color: mode === m.id ? (m.id === 'chat' ? 'white' : shell.text) : shell.text3,
+                        fontSize: 12.5,
+                        fontWeight: 500,
+                      }}>{m.label}</button>
                     ))}
                   </div>
-                )}
+                  {mode === 'search' && (
+                    <div style={{ display: 'flex', gap: 5 }}>
+                      {[{ id: 'both', label: 'Both' }, { id: 'message', label: 'Message' }, { id: 'bible', label: 'Bible' }].map(s => (
+                        <button key={s.id} onClick={() => setSearchSource(s.id as SearchSource)} style={{
+                          border: `1px solid ${searchSource === s.id ? shell.amber : shell.border}`,
+                          background: searchSource === s.id ? '#fdf4e7' : shell.bg,
+                          color: searchSource === s.id ? '#a36214' : shell.text2,
+                          borderRadius: 999,
+                          padding: '4px 10px',
+                          fontSize: 11.5,
+                          cursor: 'pointer',
+                        }}>{s.label}</button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', gap: 8, border: `1px solid ${composerFocused ? 'rgba(0,0,0,0.13)' : shell.border}`, borderRadius: 16, padding: '10px 12px', boxShadow: composerFocused ? '0 2px 18px rgba(0,0,0,0.12)' : '0 2px 14px rgba(0,0,0,0.06)', transition: 'all .18s' }}>
+                  <textarea
+                    ref={taRef}
+                    value={query}
+                    onChange={e => setQuery(e.target.value)}
+                    onFocus={() => setComposerFocused(true)}
+                    onBlur={() => setComposerFocused(false)}
+                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
+                    placeholder={mode === 'chat' ? 'Ask about the Message or the Bible...' : 'Search exact quotes...'}
+                    rows={1}
+                    style={{ flex: 1, border: 'none', outline: 'none', fontSize: 15, lineHeight: 1.45, resize: 'none', maxHeight: 120 }}
+                  />
+                  <button onClick={send} disabled={!query.trim() || loading} title={mode === 'chat' ? 'Send message' : 'Search'} style={{
+                    width: 36, height: 36, borderRadius: 10, border: 'none',
+                    background: query.trim() && !loading ? shell.amber : shell.bg3,
+                    color: query.trim() && !loading ? 'white' : shell.text3,
+                    cursor: query.trim() && !loading ? 'pointer' : 'default',
+                  }}>
+                    {mode === 'chat' ? (
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 2L11 13"/><path d="M22 2L15 22l-4-9-9-4 20-7z"/></svg>
+                    ) : (
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                    )}
+                  </button>
+                </div>
+                <p style={{ textAlign: 'center', fontSize: 11, color: shell.text3, marginTop: 7 }}>Sources limited to William Branham sermons and the KJV Bible</p>
               </div>
-              <div style={{ display: 'flex', gap: 8, background: '#fff', borderRadius: 16, border: '1px solid rgba(0,0,0,0.12)', padding: '10px 12px', boxShadow: '0 2px 16px rgba(0,0,0,0.06)', alignItems: 'flex-end' }}>
-                <textarea ref={taRef} value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }} placeholder={mode === 'chat' ? 'Ask about the Message or the Bible...' : 'Search for a quote or verse...'} rows={1} style={{ flex: 1, border: 'none', outline: 'none', fontSize: 15, lineHeight: 1.45, background: 'transparent', color: '#0d0d0c', resize: 'none', fontFamily: 'inherit', maxHeight: 120, overflow: 'auto' }} />
-                <button onClick={send} disabled={!query.trim() || loading} style={{ width: 36, height: 36, borderRadius: 10, background: query.trim() && !loading ? amber : '#f2f2f0', color: query.trim() && !loading ? 'white' : '#a3a39e', border: 'none', cursor: query.trim() && !loading ? 'pointer' : 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 2L11 13"/><path d="M22 2L15 22l-4-9-9-4 20-7z"/></svg>
-                </button>
-              </div>
-              <p style={{ textAlign: 'center', fontSize: 11, color: '#a3a39e', marginTop: 7 }}>William Branham's sermons & KJV Bible only</p>
+            </div>
+          </>
+        )}
+
+        {view === 'folders' && (
+          <div style={{ flex: 1, overflowY: 'auto', padding: '22px 20px' }}>
+            <div style={{ maxWidth: 760, margin: '0 auto' }}>
+              {!user ? (
+                <div style={emptyCard()}>
+                  <h2 style={{ marginBottom: 6 }}>Folders & Saved Quotes</h2>
+                  <p style={{ color: shell.text2, fontSize: 13, marginBottom: 14 }}>Sign in to create folders and organize your saved passages.</p>
+                  <button onClick={() => setAuthMode('login')} style={primaryBtn()}>Sign in</button>
+                </div>
+              ) : activeFolder ? (
+                <>
+                  <button onClick={() => setActiveFolder(null)} style={textBtn(shell.amber)}>← Back to folders</button>
+                  <h2 style={{ marginTop: 8, marginBottom: 14 }}>{activeFolder.name}</h2>
+                  {filteredFolderQuotes.length === 0 ? <p style={{ color: shell.text3 }}>No quotes in this folder yet.</p> : filteredFolderQuotes.map(q => (
+                    <div key={q.id} style={resultCard()}>
+                      <p style={{ borderLeft: `2px solid ${shell.amber}`, paddingLeft: 12, fontStyle: 'italic', color: shell.text2, fontFamily: 'Merriweather, Georgia, serif' }}>"{q.quote_text}"</p>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10 }}>
+                        <div>
+                          <div style={{ fontSize: 12, fontWeight: 600 }}>{q.source_title}</div>
+                          <div style={{ fontSize: 11, color: shell.text3 }}>{q.source_date}</div>
+                        </div>
+                        <button onClick={() => deleteQuote(q.id)} style={secondaryBtn({ fontSize: 11, padding: '5px 8px' })}>Remove</button>
+                      </div>
+                    </div>
+                  ))}
+                </>
+              ) : (
+                <>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 14 }}>
+                    <h2>Folders</h2>
+                    <button onClick={() => setShowNewFolder(v => !v)} style={secondaryBtn()}>{showNewFolder ? 'Close' : '+ New folder'}</button>
+                  </div>
+                  {showNewFolder && (
+                    <div style={{ ...resultCard(), marginBottom: 12 }}>
+                      <input value={newFolderName} onChange={e => setNewFolderName(e.target.value)} onKeyDown={e => e.key === 'Enter' && createFolder()} placeholder="Folder name" style={inputStyle({ marginBottom: 10 })} />
+                      <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+                        {COLORS.map(c => (
+                          <button key={c} onClick={() => setNewFolderColor(c)} style={{ width: 24, height: 24, borderRadius: '50%', border: newFolderColor === c ? `2px solid ${shell.text}` : '2px solid transparent', background: c, cursor: 'pointer' }} />
+                        ))}
+                      </div>
+                      <button onClick={createFolder} style={primaryBtn()}>Create folder</button>
+                    </div>
+                  )}
+                  {!folders.length ? (
+                    <p style={{ color: shell.text3 }}>No folders yet.</p>
+                  ) : (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 10 }}>
+                      {folders.map(f => {
+                        const count = savedQuotes.filter(q => q.folder_id === f.id).length
+                        return (
+                          <button key={f.id} onClick={() => setActiveFolder(f)} style={{ ...resultCard(), textAlign: 'left', cursor: 'pointer' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                              <div style={{ width: 12, height: 12, borderRadius: 4, background: f.color }} />
+                              <strong style={{ fontSize: 13 }}>{f.name}</strong>
+                            </div>
+                            <p style={{ fontSize: 12, color: shell.text3 }}>{count} quote{count !== 1 ? 's' : ''}</p>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           </div>
-        </>
-      )}
-      <style dangerouslySetInnerHTML={{__html: `@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap'); * { box-sizing: border-box; margin: 0; padding: 0; } textarea { caret-color: #c47a1a; }`}} />
+        )}
+
+        {view === 'sermons' && (
+          <div style={{ flex: 1, overflowY: 'auto', padding: '22px 20px' }}>
+            <div style={{ maxWidth: 760, margin: '0 auto' }}>
+              <h2 style={{ marginBottom: 12 }}>Sermon Reader</h2>
+              {SERMONS.map(s => (
+                <div key={s.id} style={{ ...resultCard(), marginBottom: 10 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                    <strong>{s.title}</strong>
+                    <span style={{ fontSize: 11.5, color: shell.text3 }}>{s.date}</span>
+                  </div>
+                  <p style={{ color: shell.text2, fontSize: 13, marginBottom: 8 }}>{s.preview}</p>
+                  <p style={{ fontSize: 11.5, color: shell.text3 }}>{s.location}</p>
+                </div>
+              ))}
+              <div style={resultCard()}>
+                <h3 style={{ marginBottom: 8 }}>Sample Passage</h3>
+                {SERMON_PARAS.map((p, i) => (
+                  <p key={i} style={{ marginBottom: 10, lineHeight: 1.75, fontSize }}>{p}</p>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {view === 'bible' && (
+          <div style={{ flex: 1, overflowY: 'auto', padding: '22px 20px' }}>
+            <div style={{ maxWidth: 760, margin: '0 auto' }}>
+              <h2 style={{ marginBottom: 12 }}>Bible Reader (KJV)</h2>
+              {BIBLE_VERSES.map(v => (
+                <div key={v.verse} style={{ ...resultCard(), marginBottom: 10 }}>
+                  <div style={{ fontSize: 11, color: shell.text3, marginBottom: 6 }}>{v.verse}</div>
+                  <p style={{ borderLeft: `2px solid ${shell.amber}`, paddingLeft: 12, fontStyle: 'italic', lineHeight: 1.7, fontSize, fontFamily: 'Merriweather, Georgia, serif' }}>{v.text}</p>
+                  <div style={{ marginTop: 10 }}>
+                    <button onClick={() => { if (!user) { showToast('Sign in to save quotes'); return }; setSaveModal({ text: v.text, title: v.verse, date: 'KJV' }) }} style={secondaryBtn({ fontSize: 11.5, padding: '5px 9px' })}>Save verse</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {view === 'settings' && (
+          <div style={{ flex: 1, overflowY: 'auto', padding: '22px 20px' }}>
+            <div style={{ maxWidth: 760, margin: '0 auto' }}>
+              <h2 style={{ marginBottom: 12 }}>Settings</h2>
+              <div style={resultCard()}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <h3 style={{ fontSize: 14, marginBottom: 4 }}>Reading Font Size</h3>
+                    <p style={{ color: shell.text2, fontSize: 12.5 }}>Adjust chat, quote, and reader text size.</p>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    <button onClick={() => setFontSize(v => Math.max(13, v - 1))} style={iconBtn()}>-</button>
+                    <span style={{ fontSize: 13, minWidth: 24, textAlign: 'center' }}>{fontSize}</span>
+                    <button onClick={() => setFontSize(v => Math.min(20, v + 1))} style={iconBtn()}>+</button>
+                  </div>
+                </div>
+              </div>
+              <div style={{ ...resultCard(), marginTop: 10 }}>
+                <h3 style={{ fontSize: 14, marginBottom: 6 }}>Account</h3>
+                {!user ? (
+                  <>
+                    <p style={{ fontSize: 12.5, color: shell.text2, marginBottom: 8 }}>You are browsing as guest.</p>
+                    <button onClick={() => setAuthMode('login')} style={primaryBtn()}>Sign in</button>
+                  </>
+                ) : (
+                  <>
+                    <p style={{ fontSize: 12.5, color: shell.text2, marginBottom: 8 }}>{user.email}</p>
+                    <button onClick={signOut} style={secondaryBtn()}>Sign out</button>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+      </main>
+
+      <style dangerouslySetInnerHTML={{ __html: `@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap'); *{box-sizing:border-box} body{margin:0}` }} />
     </div>
   )
+}
+
+function viewTitle(view: View) {
+  if (view === 'chat') return 'Chat & Search'
+  if (view === 'folders') return 'Folders'
+  if (view === 'sermons') return 'Sermon Reader'
+  if (view === 'bible') return 'Bible Reader'
+  return 'Settings'
+}
+
+function inputStyle(extra: React.CSSProperties = {}): React.CSSProperties {
+  return {
+    width: '100%',
+    padding: '10px 12px',
+    borderRadius: 9,
+    border: '1px solid rgba(0,0,0,0.11)',
+    fontSize: 14,
+    outline: 'none',
+    fontFamily: 'inherit',
+    ...extra,
+  }
+}
+
+function primaryBtn(extra: React.CSSProperties = {}): React.CSSProperties {
+  return {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    background: '#c47a1a',
+    color: 'white',
+    border: 'none',
+    borderRadius: 8,
+    padding: '8px 12px',
+    fontSize: 13,
+    fontWeight: 500,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    ...extra,
+  }
+}
+
+function secondaryBtn(extra: React.CSSProperties = {}): React.CSSProperties {
+  return {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    background: '#f2f2f0',
+    color: '#5a5a56',
+    border: '1px solid rgba(0,0,0,0.08)',
+    borderRadius: 8,
+    padding: '7px 10px',
+    fontSize: 12.5,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    ...extra,
+  }
+}
+
+function textBtn(color: string): React.CSSProperties {
+  return {
+    background: 'none',
+    border: 'none',
+    color,
+    cursor: 'pointer',
+    fontSize: 12.5,
+    fontFamily: 'inherit',
+  }
+}
+
+function iconBtn(extra: React.CSSProperties = {}): React.CSSProperties {
+  return {
+    width: 30,
+    height: 30,
+    borderRadius: 8,
+    border: '1px solid rgba(0,0,0,0.08)',
+    background: 'white',
+    color: '#5a5a56',
+    cursor: 'pointer',
+    fontSize: 12,
+    ...extra,
+  }
+}
+
+function navBtn(): React.CSSProperties {
+  return {
+    width: '100%',
+    border: 'none',
+    background: 'transparent',
+    color: '#5a5a56',
+    textAlign: 'left',
+    borderRadius: 8,
+    padding: '8px 10px',
+    cursor: 'pointer',
+    fontSize: 12.5,
+    fontFamily: 'inherit',
+  }
+}
+
+function resultCard(): React.CSSProperties {
+  return {
+    border: '1px solid rgba(0,0,0,0.07)',
+    borderRadius: 12,
+    background: 'white',
+    padding: '14px 16px',
+  }
+}
+
+function emptyCard(): React.CSSProperties {
+  return {
+    border: '1px solid rgba(0,0,0,0.06)',
+    background: '#f9f9f8',
+    borderRadius: 14,
+    padding: 22,
+    textAlign: 'center',
+    marginTop: 40,
+    marginBottom: 20,
+  }
 }
