@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
+import ReactMarkdown from 'react-markdown'
 
 export default function Home() {
   const [query, setQuery] = useState('')
@@ -82,10 +83,10 @@ export default function Home() {
                 {[
                   { q: 'What did Branham teach about the new birth?', mode: 'chat' },
                   { q: 'What is the token of the blood?', mode: 'chat' },
-                  { q: 'faith healing', mode: 'search' },
+                  { q: 'What did Branham say about healing?', mode: 'chat' },
                 ].map((s, i) => (
                   <button key={i} onClick={() => { setQuery(s.q); setMode(s.mode) }} style={{ padding: '12px 16px', borderRadius: 10, border: '1px solid rgba(0,0,0,0.07)', background: '#f9f9f8', cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left', transition: 'all .15s' }}>
-                    <div style={{ fontSize: 10.5, fontWeight: 600, color: s.mode === 'chat' ? '#c47a1a' : '#5a5a56', textTransform: 'uppercase' as const, letterSpacing: '0.07em', marginBottom: 3 }}>{s.mode}</div>
+                    <div style={{ fontSize: 10.5, fontWeight: 600, color: '#c47a1a', textTransform: 'uppercase' as const, letterSpacing: '0.07em', marginBottom: 3 }}>Chat</div>
                     <div style={{ fontSize: 13.5, color: '#5a5a56' }}>{s.q}</div>
                   </button>
                 ))}
@@ -108,11 +109,23 @@ export default function Home() {
                       </svg>
                     </div>
                     <div style={{ flex: 1 }}>
-                      {(m.content || '').split('\n').map((line: string, j: number) => {
-                        if (line.startsWith('> ')) return <blockquote key={j} style={{ borderLeft: '2.5px solid #c47a1a', paddingLeft: 14, margin: '12px 0', fontStyle: 'italic', color: '#5a5a56', fontSize: 14, lineHeight: 1.75 }}>{line.slice(2)}</blockquote>
-                        if (!line.trim()) return <div key={j} style={{ height: 6 }} />
-                        return <p key={j} style={{ fontSize: 14.5, lineHeight: 1.75, color: '#0d0d0c', marginBottom: 6 }}>{line}</p>
-                      })}
+                      <div style={{ fontSize: 14.5, lineHeight: 1.75, color: '#0d0d0c' }}>
+                        <ReactMarkdown
+                          components={{
+                            p: ({children}) => <p style={{ marginBottom: 10, lineHeight: 1.75 }}>{children}</p>,
+                            h1: ({children}) => <h1 style={{ fontSize: 17, fontWeight: 600, marginBottom: 8, marginTop: 16, letterSpacing: '-0.02em' }}>{children}</h1>,
+                            h2: ({children}) => <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 6, marginTop: 14, letterSpacing: '-0.01em' }}>{children}</h2>,
+                            h3: ({children}) => <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 4, marginTop: 12 }}>{children}</h3>,
+                            blockquote: ({children}) => <blockquote style={{ borderLeft: '2.5px solid #c47a1a', paddingLeft: 14, margin: '12px 0', fontStyle: 'italic', color: '#5a5a56', fontSize: 14, lineHeight: 1.75 }}>{children}</blockquote>,
+                            strong: ({children}) => <strong style={{ fontWeight: 600, color: '#0d0d0c' }}>{children}</strong>,
+                            ul: ({children}) => <ul style={{ paddingLeft: 20, marginBottom: 10 }}>{children}</ul>,
+                            ol: ({children}) => <ol style={{ paddingLeft: 20, marginBottom: 10 }}>{children}</ol>,
+                            li: ({children}) => <li style={{ marginBottom: 4, lineHeight: 1.65 }}>{children}</li>,
+                          }}
+                        >
+                          {m.content || ''}
+                        </ReactMarkdown>
+                      </div>
                       {m.sources && m.sources.length > 0 && (
                         <div style={{ marginTop: 14, display: 'flex', gap: 7, flexWrap: 'wrap' as const }}>
                           {m.sources.map((s: any, k: number) => (
@@ -125,7 +138,8 @@ export default function Home() {
                       )}
                       <div style={{ display: 'flex', gap: 6, marginTop: 12 }}>
                         <button onClick={() => copyText(m.content, i)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.08)', background: 'transparent', color: copied === i ? '#c47a1a' : '#a3a39e', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>
-                          Copy
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                          {copied === i ? 'Copied' : 'Copy'}
                         </button>
                       </div>
                     </div>
@@ -161,7 +175,15 @@ export default function Home() {
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8, background: '#ffffff', borderRadius: 16, border: '1px solid rgba(0,0,0,0.12)', padding: '10px 12px', boxShadow: '0 2px 16px rgba(0,0,0,0.06)', alignItems: 'flex-end' }}>
-            <textarea ref={taRef} value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }} placeholder={mode === 'chat' ? 'Ask about the Message or the Bible...' : 'Search for a quote or verse...'} rows={1} style={{ flex: 1, border: 'none', outline: 'none', fontSize: 15, lineHeight: 1.45, background: 'transparent', color: '#0d0d0c', resize: 'none', fontFamily: 'inherit', maxHeight: 120, overflow: 'auto' }} />
+            <textarea
+              ref={taRef}
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
+              placeholder={mode === 'chat' ? 'Ask about the Message or the Bible...' : 'Search for a quote or verse...'}
+              rows={1}
+              style={{ flex: 1, border: 'none', outline: 'none', fontSize: 15, lineHeight: 1.45, background: 'transparent', color: '#0d0d0c', resize: 'none', fontFamily: 'inherit', maxHeight: 120, overflow: 'auto' }}
+            />
             <button onClick={send} disabled={!query.trim() || loading} style={{ width: 36, height: 36, borderRadius: 10, background: query.trim() && !loading ? '#c47a1a' : '#f2f2f0', color: query.trim() && !loading ? 'white' : '#a3a39e', border: 'none', cursor: query.trim() && !loading ? 'pointer' : 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all .15s' }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 2L11 13"/><path d="M22 2L15 22l-4-9-9-4 20-7z"/></svg>
             </button>
