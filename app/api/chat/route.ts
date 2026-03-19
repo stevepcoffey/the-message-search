@@ -2,99 +2,81 @@ import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@supabase/supabase-js'
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY!
-})
+export const maxDuration = 60
 
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SECRET_KEY!
 )
 
-function sanitizeString(str: string) {
-  return (str || '').replace(/[\u2028\u2029]/g, '')
-}
-
-function clean(text: string): string {
-  if (!text) return ''
-  return text.replace(/[^\x20-\x7E]/g, ' ').replace(/\s+/g, ' ').trim()
+function safe(str: string): string {
+  if (!str) return ''
+  const out = []
+  for (let i = 0; i < str.length; i++) {
+    const c = str.charCodeAt(i)
+    if (c >= 32 && c <= 126) {
+      out.push(str[i])
+    } else if (c === 9 || c === 10 || c === 13) {
+      out.push(' ')
+    } else {
+      out.push(' ')
+    }
+  }
+  return out.join('').replace(/\s+/g, ' ').trim()
 }
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
+    const query = safe(body.query || '')
+    if (!query) return NextResponse.json({ error: 'Query required' }, { status: 400 })
 
-    const query = clean(sanitizeString(body.query || ''))
-
-    if (!query) {
-      return NextResponse.json({ error: 'Query required' }, { status: 400 })
-    }
-
-    const words = query
-      .split(' ')
-      .filter(w => w.length > 3)
-      .slice(0, 2)
-      .join(' & ')
+    const words = query.split(' ').filter(w => w.length > 3).slice(0, 2).join(' & ')
 
     let sermonResults: any[] = []
     let bibleResults: any[] = []
 
     if (words) {
-      try {
-        const { data: s } = await supabase
-          .from('sermon_chunks')
-          .select('text, sermon_id, sermons(title, date)')
-          .textSearch('text', words)
-          .limit(3)
+      const { data: s } = await supabase
+        .from('sermon_chunks')
+        .select('text, sermon_id, sermons(title, date)')
+        .textSearch('text', words)
+        .limit(3)
+      sermonResults = s || []
 
-        sermonResults = s || []
-
-        const { data: b } = await supabase
-          .from('bible_verses')
-          .select('book, chapter, verse, text')
-          .textSearch('text', words)
-          .limit(2)
-
-        bibleResults = b || []
-      } catch (err) {
-        console.error('Supabase error:', err)
-      }
+      const { data: b } = await supabase
+        .from('bible_verses')
+        .select('book, chapter, verse, text')
+        .textSearch('text', words)
+        .limit(2)
+      bibleResults = b || []
     }
 
     const context = [
       ...sermonResults.map((r: any) =>
-        `From "${clean(r.sermons?.title || 'Unknown')}" (${r.sermons?.date || 'Unknown'}):\n${clean(r.text).slice(0, 400)}`
+        `From "${safe(r.sermons?.title || '')}" (${r.sermons?.date || ''}):\n${safe(r.text).slice(0, 400)}`
       ),
       ...bibleResults.map((r: any) =>
-        `From ${r.book} ${r.chapter}:${r.verse} (KJV):\n${clean(r.text)}`
+        `From ${r.book} ${r.chapter}:${r.verse} (KJV):\n${safe(r.text)}`
       )
     ].join('\n\n---\n\n') || 'No relevant passages found.'
 
-    let responseText = 'No response generated.'
+    const safeContext = safe(context)
+    const safeQuery = safe(query)
+    const safeSystem = safe(`You are a research assistant for William Branham sermons and KJV Bible. Answer ONLY from these passages. Be concise.\n\nPASSAGES:\n${safeContext}`)
 
-    try {
-      const aiResponse = await anthropic.messages.create({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 512,
-        system: `You are a research assistant for William Branham sermons and KJV Bible. Answer ONLY from these passages. Be concise.\n\nPASSAGES:\n${context}`,
-        messages: [{ role: 'user', content: query }]
-      })
+    const aiResponse = await anthropic.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 512,
+      system: safeSystem,
+      messages: [{ role: 'user', content: safeQuery }]
+    })
 
-      if (aiResponse?.content?.[0]?.type === 'text') {
-        responseText = aiResponse.content[0].text
-      }
-
-    } catch (err) {
-      console.error('Anthropic error:', err)
-
-      return NextResponse.json(
-        { error: 'AI request failed' },
-        { status: 500 }
-      )
-    }
+    const responseText = aiResponse?.content?.[0]?.type === 'text' ? aiResponse.content[0].text : ''
 
     return NextResponse.json({
-      response: sanitizeString(responseText),
+      response: safe(responseText),
       sources: sermonResults.slice(0, 2).map((r: any) => ({
         title: r.sermons?.title,
         date: r.sermons?.date,
@@ -104,10 +86,6 @@ export async function POST(request: NextRequest) {
 
   } catch (error: any) {
     console.error('Chat error:', error)
-
-    return NextResponse.json(
-      { error: error?.message || 'Internal server error' },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: error?.message || 'Internal server error' }, { status: 500 })
   }
 }
