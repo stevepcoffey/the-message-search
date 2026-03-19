@@ -112,7 +112,7 @@ export default function Home() {
                       <div style={{ fontSize: 14.5, lineHeight: 1.75, color: '#0d0d0c' }}>
                         <ReactMarkdown
                           components={{
-                            p: ({children}) => <p style={{ marginBottom: 10, lineHeight: 1.75 }}>{children}</p>,
+                            p: ({children}) => <p style={{ marginBottom: 10, lineHeight: 1.75, fontWeight: 400 }}>{children}</p>,
                             h1: ({children}) => <h1 style={{ fontSize: 17, fontWeight: 600, marginBottom: 8, marginTop: 16, letterSpacing: '-0.02em' }}>{children}</h1>,
                             h2: ({children}) => <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 6, marginTop: 14, letterSpacing: '-0.01em' }}>{children}</h2>,
                             h3: ({children}) => <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 4, marginTop: 12 }}>{children}</h3>,
