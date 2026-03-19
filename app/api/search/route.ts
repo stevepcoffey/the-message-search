@@ -7,10 +7,25 @@ const supabase = createClient(
 )
 
 type SearchSource = 'message' | 'bible' | 'both'
+type SermonRelation = { title: string | null; date: string | null } | Array<{ title: string | null; date: string | null }> | null
 
 function normalizeSource(source: unknown): SearchSource {
   if (source === 'message' || source === 'bible' || source === 'both') return source
   return 'both'
+}
+
+function getSermonMeta(sermons: SermonRelation) {
+  if (!sermons) return { title: '', date: '' }
+  if (Array.isArray(sermons)) {
+    return {
+      title: sermons[0]?.title || '',
+      date: sermons[0]?.date || '',
+    }
+  }
+  return {
+    title: sermons.title || '',
+    date: sermons.date || '',
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -42,10 +57,11 @@ export async function POST(request: NextRequest) {
       }
 
       for (const row of sermonMatches || []) {
+        const sermon = getSermonMeta(row.sermons as SermonRelation)
         results.push({
           quote_text: row.text || '',
-          source_title: row.sermons?.title || 'William Branham Sermon',
-          source_date: row.sermons?.date || '',
+          source_title: sermon.title || 'William Branham Sermon',
+          source_date: sermon.date,
           source: 'message',
         })
       }
