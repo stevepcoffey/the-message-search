@@ -71,8 +71,22 @@ export default function Home() {
 
   const createFolder = async () => {
     if (!newFolderName.trim() || !user) return
-    const { data } = await supabase.from('folders').insert({ name: newFolderName.trim(), color: newFolderColor, user_id: user.id }).select().single()
-    if (data) { setFolders([...folders, data]); setNewFolderName(''); setShowNewFolder(false); showToast('Folder created') }
+    const name = newFolderName.trim()
+    const { error } = await supabase.from('folders').insert({
+      name,
+      color: newFolderColor,
+      user_id: user.id,
+    })
+
+    if (error) {
+      showToast(error.message || 'Failed to create folder')
+      return
+    }
+
+    setNewFolderName('')
+    setShowNewFolder(false)
+    showToast('Folder created')
+    await loadFolders()
   }
 
   const saveQuote = async () => {
