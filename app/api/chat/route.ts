@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
-import { createClient } from '@supabase/supabase-js'
+import OpenAI from 'openai'
+import { supabaseServer } from '@/lib/supabase'
 
 export const maxDuration = 60
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SECRET_KEY!)
-
-const SKIP = new Set(['what','does','did','about','the','and','for','with','from','that','this','have','will','your','they','been','were','when','said','branham','william','say','tell','teach','taught','explain','describe','according'])
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
 function toAscii(s: string): string {
   if (!s) return ''
@@ -21,13 +20,13 @@ function toAscii(s: string): string {
   return o
 }
 
-function getSearchPhrase(query: string): string {
-  const q = query.toLowerCase().replace(/[^a-z ]/g, '').trim()
-  const words = q.split(' ').filter(w => w.length > 1)
-  const meaningful = words.filter(w => w.length > 2 && !SKIP.has(w))
-  if (meaningful.length >= 2) return meaningful[meaningful.length - 2] + ' ' + meaningful[meaningful.length - 1]
-  if (meaningful.length === 1) return meaningful[0]
-  return words.filter(w => w.length > 2)[0] || 'faith'
+function normalizeSermonMeta(sermons: any): { title: string; date: string; ref: string } {
+  const value = Array.isArray(sermons) ? sermons[0] : sermons
+  return {
+    title: value?.title || 'William Branham Sermon',
+    date: value?.date || '',
+    ref: value?.ref || '',
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -36,49 +35,79 @@ export async function POST(request: NextRequest) {
     const query = toAscii(body.query || '').trim()
     if (!query) return NextResponse.json({ error: 'Query required' }, { status: 400 })
 
-    const phrase = getSearchPhrase(query)
-    console.log('Searching for:', phrase)
+    const embed = await openai.embeddings.create({
+      model: 'text-embedding-3-small',
+      input: query,
+    })
+    const queryEmbedding = embed.data[0]?.embedding
+    if (!queryEmbedding) {
+      return NextResponse.json({ error: 'Failed to embed query' }, { status: 500 })
+    }
 
-    const { data: sr } = await supabase
-      .from('sermon_chunks')
-      .select('text, sermon_id, sermons(title, date)')
-      .ilike('text', '%' + phrase + '%')
-      .order('sermon_id', { ascending: false })
-      .limit(6)
+    const { data: sermonMatches, error: sermonError } = await supabaseServer
+      .rpc('search_sermons', { query_embedding: queryEmbedding, match_count: 12 })
 
-    const { data: br } = await supabase
-      .from('bible_verses')
-      .select('book, chapter, verse, text')
-      .ilike('text', '%' + phrase + '%')
-      .limit(2)
+    if (sermonError) {
+      return NextResponse.json({ error: sermonError.message }, { status: 500 })
+    }
 
-    const sermonPassages = (sr || []).map((r: any) =>
-      'From "' + toAscii(r.sermons?.title || '') + '" (' + (r.sermons?.date || '') + '):\n' + toAscii(r.text || '').slice(0, 500)
-    )
-    const biblePassages = (br || []).map((r: any) =>
-      'From ' + r.book + ' ' + r.chapter + ':' + r.verse + ' (KJV):\n' + toAscii(r.text || '')
-    )
+    const { data: bibleMatches, error: bibleError } = await supabaseServer
+      .rpc('search_bible', { query_embedding: queryEmbedding, match_count: 12 })
 
-    const passages = [...sermonPassages, ...biblePassages].join('\n\n---\n\n') || 'No relevant passages found.'
+    if (bibleError) {
+      return NextResponse.json({ error: bibleError.message }, { status: 500 })
+    }
 
-    const systemPrompt = toAscii([
-      'You are a William Branham sermon research assistant.',
-      'Answer ONLY from the passages provided. Do not use outside knowledge.',
-      '',
-      'Formatting rules:',
-      '- Use ## for section headings',
-      '- Put EVERY direct quote on its own separate line starting with >',
-      '- Use **bold** for key terms',
-      '- Keep paragraphs short with blank lines between them',
-      '- Always name the sermon title and date when quoting',
-      '',
-      'PASSAGES:',
-      passages
-    ].join('\n'))
+    const sermonRows = (sermonMatches || []).map((row: any) => {
+      const meta = normalizeSermonMeta(row.sermons)
+      return {
+        source: 'message',
+        similarity: Number(row.similarity || 0),
+        text: toAscii(row.text || ''),
+        title: toAscii(row.title || meta.title),
+        date: row.date || meta.date,
+        ref: row.ref || meta.ref,
+      }
+    })
+
+    const bibleRows = (bibleMatches || []).map((row: any) => ({
+      source: 'bible',
+      similarity: Number(row.similarity || 0),
+      text: toAscii(row.text || ''),
+      title: `${row.book || ''} ${row.chapter || ''}:${row.verse || ''}`.trim() || 'KJV Bible',
+      date: 'KJV',
+      ref: '',
+    }))
+
+    const ranked = [...sermonRows, ...bibleRows]
+      .sort((a, b) => b.similarity - a.similarity)
+      .slice(0, 12)
+
+    const passages = ranked.map((r, idx) =>
+      `${idx + 1}. [${r.source.toUpperCase()}] ${r.title}${r.date ? ` (${r.date})` : ''}${r.ref ? ` #${r.ref}` : ''}\n${r.text.slice(0, 900)}`
+    ).join('\n\n')
+
+    const systemPrompt = toAscii(`
+You are a William Branham sermon research assistant.
+Use ONLY the provided context passages. Do not invent citations.
+
+Output format requirements:
+1) Start with a short summary paragraph.
+2) Add a "## Direct Quotes" section with multiple blockquotes.
+   - Every quote line must start with ">".
+   - After each quote, add source like: — Sermon Title (Date) [#Ref]
+3) Add a "## Key Scriptures" section as bullet points.
+4) Add a "## Sources" section at the bottom formatted as source cards:
+   - "- **Title** | Date | #Reference"
+   - For Bible: "- **John 3:3** | KJV"
+
+Context passages:
+${passages || 'No passages found.'}
+    `)
 
     const ai = await anthropic.messages.create({
       model: 'claude-sonnet-4-6',
-      max_tokens: 1024,
+      max_tokens: 2048,
       system: systemPrompt,
       messages: [{ role: 'user', content: toAscii(query) }]
     })
@@ -87,11 +116,12 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       response,
-      sources: (sr || []).slice(0, 3).map((r: any) => ({
-        title: r.sermons?.title,
-        date: r.sermons?.date,
-        source: 'message'
-      }))
+      sources: ranked.slice(0, 6).map(r => ({
+        title: r.title,
+        date: r.date,
+        source: r.source,
+        ref: r.ref || undefined,
+      })),
     })
 
   } catch (error: any) {
