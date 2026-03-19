@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@supabase/supabase-js'
 
-export const maxDuration = 30
+export const maxDuration = 60
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 const supabase = createClient(
@@ -15,23 +15,23 @@ export async function POST(request: NextRequest) {
     const { query } = await request.json()
     if (!query) return NextResponse.json({ error: 'Query required' }, { status: 400 })
 
-    const words = query.split(' ').slice(0, 3).join(' | ')
+    const words = query.split(' ').slice(0, 2).join(' | ')
 
     const { data: sermonResults } = await supabase
       .from('sermon_chunks')
-      .select('text, sermon_id, sermons(title, date, location)')
+      .select('text, sermon_id, sermons(title, date)')
       .textSearch('text', words)
-      .limit(6)
+      .limit(3)
 
     const { data: bibleResults } = await supabase
       .from('bible_verses')
       .select('book, chapter, verse, text')
       .textSearch('text', words)
-      .limit(4)
+      .limit(2)
 
     const context = [
       ...(sermonResults || []).map((r: any) =>
-        `From "${r.sermons?.title}" (${r.sermons?.date}):\n${r.text}`
+        `From "${r.sermons?.title}" (${r.sermons?.date}):\n${r.text.slice(0, 300)}`
       ),
       ...(bibleResults || []).map((r: any) =>
         `From ${r.book} ${r.chapter}:${r.verse} (KJV):\n${r.text}`
@@ -39,9 +39,9 @@ export async function POST(request: NextRequest) {
     ].join('\n\n---\n\n')
 
     const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 1024,
-      system: `You are a research assistant for The Message, a body of sermons preached by William Marrion Branham between 1947 and 1965, and the King James Bible. You ONLY answer using the passages provided below. Do not draw on outside knowledge. If the answer is not in the passages, say so. Always attribute quotes to the specific sermon title and date, or Bible reference.\n\nSOURCE PASSAGES:\n${context}`,
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 512,
+      system: `You are a research assistant for William Branham's sermons and the KJV Bible. Answer ONLY from the passages below. Be concise.\n\nPASSAGES:\n${context}`,
       messages: [{ role: 'user', content: query }]
     })
 
@@ -54,10 +54,6 @@ export async function POST(request: NextRequest) {
           title: r.sermons?.title,
           date: r.sermons?.date,
           source: 'message'
-        })),
-        ...(bibleResults || []).slice(0, 1).map((r: any) => ({
-          title: `${r.book} ${r.chapter}:${r.verse}`,
-          source: 'bible'
         }))
       ]
     })
