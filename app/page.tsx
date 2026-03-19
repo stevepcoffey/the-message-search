@@ -110,6 +110,30 @@ export default function Home() {
   }
 
   const copyText = (text: string, i: number) => { navigator.clipboard.writeText(text); setCopied(i); setTimeout(() => setCopied(null), 2000) }
+  const getPlainTextFromNode = (node: any): string => {
+    if (node == null) return ''
+    if (typeof node === 'string' || typeof node === 'number') return String(node)
+    if (Array.isArray(node)) return node.map(getPlainTextFromNode).join('')
+    if (node.props?.children) return getPlainTextFromNode(node.props.children)
+    return ''
+  }
+  const extractSavableQuote = (content: string) => {
+    const lines = content.split('\n')
+    const firstQuoteLine = lines.findIndex(line => /^\s*>\s?/.test(line))
+
+    if (firstQuoteLine !== -1) {
+      const quoteLines: string[] = []
+      for (let i = firstQuoteLine; i < lines.length; i++) {
+        const line = lines[i]
+        if (!/^\s*>\s?/.test(line)) break
+        quoteLines.push(line.replace(/^\s*>\s?/, ''))
+      }
+      const quote = quoteLines.join('\n').trim()
+      if (quote) return quote
+    }
+
+    return content.replace(/\s+/g, ' ').trim().slice(0, 200)
+  }
   const isEmpty = !messages.length && !loading
   const amber = '#c47a1a'
 
@@ -292,7 +316,32 @@ export default function Home() {
                               p: ({children}) => <p style={{ marginBottom: 10, lineHeight: 1.75, fontWeight: 400 }}>{children}</p>,
                               h2: ({children}) => <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 6, marginTop: 14 }}>{children}</h2>,
                               h3: ({children}) => <h3 style={{ fontSize: 14, fontWeight: 600, marginBottom: 4, marginTop: 12 }}>{children}</h3>,
-                              blockquote: ({children}) => <blockquote style={{ borderLeft: '2.5px solid ' + amber, paddingLeft: 14, margin: '12px 0', fontStyle: 'italic', color: '#5a5a56', fontSize: 14, lineHeight: 1.75 }}>{children}</blockquote>,
+                              blockquote: ({children}) => {
+                                const quoteText = getPlainTextFromNode(children).trim()
+                                return (
+                                  <div style={{ position: 'relative', margin: '12px 0' }}>
+                                    <blockquote style={{ borderLeft: '2.5px solid ' + amber, paddingLeft: 14, paddingRight: 30, fontStyle: 'italic', color: '#5a5a56', fontSize: 14, lineHeight: 1.75, margin: 0 }}>
+                                      {children}
+                                    </blockquote>
+                                    <button
+                                      onClick={() => {
+                                        if (!user) { showToast('Sign in to save quotes'); return }
+                                        if (!quoteText) return
+                                        setSaveModal({
+                                          text: quoteText,
+                                          title: m.sources?.[0]?.title || 'William Branham Sermon',
+                                          date: m.sources?.[0]?.date || ''
+                                        })
+                                      }}
+                                      style={{ position: 'absolute', top: 2, right: 0, width: 24, height: 24, borderRadius: 6, border: '1px solid rgba(0,0,0,0.08)', background: 'transparent', color: '#a3a39e', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                      title="Save this quote"
+                                      aria-label="Save this quote"
+                                    >
+                                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="m19 21-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+                                    </button>
+                                  </div>
+                                )
+                              },
                               strong: ({children}) => <strong style={{ fontWeight: 600 }}>{children}</strong>,
                               ul: ({children}) => <ul style={{ paddingLeft: 20, marginBottom: 10 }}>{children}</ul>,
                               li: ({children}) => <li style={{ marginBottom: 4, lineHeight: 1.65 }}>{children}</li>,
@@ -313,7 +362,7 @@ export default function Home() {
                               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                               {copied === i ? 'Copied' : 'Copy'}
                             </button>
-                            <button onClick={() => { if (!user) { showToast('Sign in to save quotes'); return }; setSaveModal({ text: m.content, title: m.sources?.[0]?.title || 'William Branham Sermon', date: m.sources?.[0]?.date || '' }) }} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.08)', background: 'transparent', color: '#a3a39e', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>
+                            <button onClick={() => { if (!user) { showToast('Sign in to save quotes'); return }; setSaveModal({ text: extractSavableQuote(m.content || ''), title: m.sources?.[0]?.title || 'William Branham Sermon', date: m.sources?.[0]?.date || '' }) }} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 6, border: '1px solid rgba(0,0,0,0.08)', background: 'transparent', color: '#a3a39e', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>
                               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="m19 21-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
                               Save
                             </button>
