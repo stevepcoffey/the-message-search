@@ -7,6 +7,8 @@ import { supabase } from '@/lib/supabase'
 type Message = { role: string; content: string; sources?: any[] }
 type Folder = { id: string; name: string; color: string }
 type SavedQuote = { id: string; quote_text: string; source_title: string; source_date: string; folder_id: string | null }
+type SearchResult = { quote_text: string; source_title: string; source_date: string; source: 'message' | 'bible' }
+type SearchSource = 'both' | 'message' | 'bible'
 
 const COLORS = ['#c47a1a', '#5b8dd9', '#7c6abf', '#4aab7c', '#d97b4a', '#e05c5c']
 
@@ -32,6 +34,8 @@ export default function Home() {
   const [saveModal, setSaveModal] = useState<{ text: string; title: string; date: string } | null>(null)
   const [saveFolderId, setSaveFolderId] = useState<string | null>(null)
   const [toast, setToast] = useState('')
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([])
+  const [searchSource, setSearchSource] = useState<SearchSource>('both')
   const endRef = useRef<HTMLDivElement>(null)
   const taRef = useRef<HTMLTextAreaElement>(null)
 
@@ -100,6 +104,25 @@ export default function Home() {
   const send = async () => {
     if (!query.trim() || loading) return
     const q = query.trim(); setQuery(''); setLoading(true)
+
+    if (mode === 'search') {
+      try {
+        const res = await fetch('/api/search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: q, source: searchSource })
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data?.error || 'Search failed')
+        setSearchResults(data.results || [])
+      } catch (error: any) {
+        setSearchResults([])
+        showToast(error?.message || 'Search failed')
+      }
+      setLoading(false)
+      return
+    }
+
     const next = [...messages, { role: 'user', content: q }]; setMessages(next)
     try {
       const res = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: q }) })
@@ -281,7 +304,7 @@ export default function Home() {
         <>
           <div style={{ flex: 1, overflowY: 'auto', padding: '0 20px' }}>
             <div style={{ maxWidth: 720, margin: '0 auto' }}>
-              {isEmpty && (
+              {mode === 'chat' && isEmpty && (
                 <div style={{ paddingTop: 80, textAlign: 'center' }}>
                   <div style={{ width: 52, height: 52, borderRadius: 16, background: amber, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
                     <svg width="24" height="24" viewBox="0 0 20 20" fill="none"><path d="M10 2L3 5.5V10c0 4.1 3 7.7 7 8.5 4-.8 7-4.4 7-8.5V5.5L10 2z" stroke="white" strokeWidth="1.5" strokeLinejoin="round"/><path d="M7 10l2 2 4-4" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
@@ -299,7 +322,26 @@ export default function Home() {
                 </div>
               )}
               <div style={{ paddingTop: 24, paddingBottom: 16 }}>
-                {messages.map((m, i) => (
+                {mode === 'search' ? (
+                  <>
+                    {searchResults.length === 0 && !loading ? (
+                      <p style={{ color: '#a3a39e', fontSize: 14 }}>Search for sermon passages or Bible verses to see raw quote matches.</p>
+                    ) : (
+                      searchResults.map((r, i) => (
+                        <div key={i} style={{ marginBottom: 12, padding: '14px 16px', borderRadius: 12, border: '1px solid rgba(0,0,0,0.07)' }}>
+                          <p style={{ fontSize: 13.5, fontStyle: 'italic', borderLeft: '2px solid ' + amber, paddingLeft: 10, marginBottom: 10, lineHeight: 1.7 }}>"{r.quote_text}"</p>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div>
+                              <p style={{ fontSize: 12, fontWeight: 500, color: amber }}>{r.source_title || (r.source === 'bible' ? 'KJV Bible' : 'William Branham Sermon')}</p>
+                              <p style={{ fontSize: 11, color: '#a3a39e' }}>{r.source_date || ''}</p>
+                            </div>
+                            <div style={{ padding: '3px 8px', borderRadius: 999, background: '#f2f2f0', color: '#5a5a56', fontSize: 11, textTransform: 'capitalize' }}>{r.source}</div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </>
+                ) : messages.map((m, i) => (
                   <div key={i} style={{ marginBottom: 24 }}>
                     {m.role === 'user' ? (
                       <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
@@ -394,6 +436,13 @@ export default function Home() {
                     <button key={m.id} onClick={() => setMode(m.id)} style={{ padding: '5px 16px', borderRadius: 6, background: mode === m.id ? (m.id === 'chat' ? amber : '#fff') : 'transparent', color: mode === m.id ? (m.id === 'chat' ? 'white' : '#0d0d0c') : '#a3a39e', fontSize: 13, fontWeight: mode === m.id ? 500 : 400, border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}>{m.label}</button>
                   ))}
                 </div>
+                {mode === 'search' && (
+                  <div style={{ display: 'flex', background: '#f2f2f0', borderRadius: 8, padding: 3, gap: 2 }}>
+                    {[{ id: 'both', label: 'Both' }, { id: 'message', label: 'Message' }, { id: 'bible', label: 'Bible' }].map(s => (
+                      <button key={s.id} onClick={() => setSearchSource(s.id as SearchSource)} style={{ padding: '5px 12px', borderRadius: 6, background: searchSource === s.id ? '#fff' : 'transparent', color: searchSource === s.id ? '#0d0d0c' : '#a3a39e', fontSize: 12, fontWeight: searchSource === s.id ? 500 : 400, border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}>{s.label}</button>
+                    ))}
+                  </div>
+                )}
               </div>
               <div style={{ display: 'flex', gap: 8, background: '#fff', borderRadius: 16, border: '1px solid rgba(0,0,0,0.12)', padding: '10px 12px', boxShadow: '0 2px 16px rgba(0,0,0,0.06)', alignItems: 'flex-end' }}>
                 <textarea ref={taRef} value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }} placeholder={mode === 'chat' ? 'Ask about the Message or the Bible...' : 'Search for a quote or verse...'} rows={1} style={{ flex: 1, border: 'none', outline: 'none', fontSize: 15, lineHeight: 1.45, background: 'transparent', color: '#0d0d0c', resize: 'none', fontFamily: 'inherit', maxHeight: 120, overflow: 'auto' }} />
