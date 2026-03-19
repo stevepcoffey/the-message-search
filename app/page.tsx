@@ -170,11 +170,11 @@ export default function Home() {
         </div>
       </div>
 
-      <style>{\`
+      <style dangerouslySetInnerHTML={{__html: `
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
         textarea { caret-color: #c47a1a; }
-      \`}</style>
+      `}} />
     </div>
   )
 }
