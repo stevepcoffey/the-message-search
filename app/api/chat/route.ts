@@ -10,49 +10,50 @@ const supabase = createClient(
   process.env.SUPABASE_SECRET_KEY!
 )
 
+function safe(str: string): string {
+  if (!str) return ''
+  let out = ''
+  for (let i = 0; i < str.length; i++) {
+    const c = str.charCodeAt(i)
+    if (c >= 32 && c <= 126) out += str[i]
+    else out += ' '
+  }
+  return out.replace(/  +/g, ' ').trim()
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const query = Buffer.from(body.query || '', 'ascii').toString('ascii')
+    const query = safe(body.query || '')
     if (!query) return NextResponse.json({ error: 'Query required' }, { status: 400 })
 
-    const words = query.split(' ').filter((w: string) => w.length > 3).slice(0, 2).join(' & ')
+    const keyword = query.split(' ').filter((w: string) => w.length > 3)[0] || query.split(' ')[0]
 
-    let sermonResults: any[] = []
-    let bibleResults: any[] = []
+    const { data: sermonResults, error: se } = await supabase
+      .from('sermon_chunks')
+      .select('text, sermon_id, sermons(title, date)')
+      .ilike('text', '%' + keyword + '%')
+      .limit(3)
 
-    if (words) {
-      const { data: s } = await supabase
-        .from('sermon_chunks')
-        .select('text, sermon_id, sermons(title, date)')
-        .textSearch('text', words)
-        .limit(3)
-      sermonResults = (s || []).map((r: any) => ({
-        ...r,
-        text: Buffer.from(r.text || '', 'ascii').toString('ascii')
-      }))
+    if (se) console.error('Sermon search error:', se.message)
 
-      const { data: b } = await supabase
-        .from('bible_verses')
-        .select('book, chapter, verse, text')
-        .textSearch('text', words)
-        .limit(2)
-      bibleResults = (b || []).map((r: any) => ({
-        ...r,
-        text: Buffer.from(r.text || '', 'ascii').toString('ascii')
-      }))
-    }
+    const { data: bibleResults, error: be } = await supabase
+      .from('bible_verses')
+      .select('book, chapter, verse, text')
+      .ilike('text', '%' + keyword + '%')
+      .limit(2)
+
+    if (be) console.error('Bible search error:', be.message)
+
+    const sr = sermonResults || []
+    const br = bibleResults || []
 
     const passages = [
-      ...sermonResults.map((r: any) =>
-        'From ' + (r.sermons?.title || 'Unknown') + ' (' + (r.sermons?.date || '') + '):\n' + (r.text || '').slice(0, 400)
-      ),
-      ...bibleResults.map((r: any) =>
-        'From ' + r.book + ' ' + r.chapter + ':' + r.verse + ' (KJV):\n' + (r.text || '')
-      )
+      ...sr.map((r: any) => 'From ' + safe(r.sermons?.title || 'Unknown') + ' (' + (r.sermons?.date || '') + '):\n' + safe(r.text).slice(0, 400)),
+      ...br.map((r: any) => 'From ' + r.book + ' ' + r.chapter + ':' + r.verse + ' (KJV):\n' + safe(r.text))
     ].join('\n\n---\n\n') || 'No relevant passages found.'
 
-    const systemPrompt = 'You are a research assistant for William Branham sermons and KJV Bible. Answer ONLY from these passages. Be concise.\n\nPASSAGES:\n' + passages
+    const systemPrompt = 'You are a research assistant for William Branham sermons and KJV Bible. Answer ONLY from these passages. Be concise.\n\nPASSAGES:\n' + safe(passages)
 
     const aiResponse = await anthropic.messages.create({
       model: 'claude-haiku-4-5-20251001',
@@ -64,8 +65,8 @@ export async function POST(request: NextRequest) {
     const responseText = aiResponse?.content?.[0]?.type === 'text' ? aiResponse.content[0].text : ''
 
     return NextResponse.json({
-      response: responseText,
-      sources: sermonResults.slice(0, 2).map((r: any) => ({
+      response: safe(responseText),
+      sources: sr.slice(0, 2).map((r: any) => ({
         title: r.sermons?.title,
         date: r.sermons?.date,
         source: 'message'
