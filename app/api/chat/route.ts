@@ -7,7 +7,7 @@ export const maxDuration = 60
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SECRET_KEY!)
 
-const SKIP = new Set(['what','does','did','about','the','and','for','with','from','that','this','have','will','your','they','been','were','when','said','branham','william','say','tell','explain','describe','according'])
+const SKIP = new Set(['what','does','did','about','the','and','for','with','from','that','this','have','will','your','they','been','were','when','said','branham','william','say','tell','teach','explain','describe','according','taught'])
 
 function safe(s: string): string {
   if (!s) return ''
@@ -26,7 +26,7 @@ function getSearchPhrase(query: string): string {
   // Try two-word phrases first (most specific)
   const pairs = []
   for (let i = 0; i < words.length - 1; i++) {
-    if (!SKIP.has(words[i]) || !SKIP.has(words[i+1])) {
+    if (!SKIP.has(words[i]) && !SKIP.has(words[i+1]) && words[i].length > 2 && words[i+1].length > 2) {
       pairs.push(words[i] + ' ' + words[i+1])
     }
   }
