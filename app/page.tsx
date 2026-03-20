@@ -5,7 +5,8 @@ import ReactMarkdown from 'react-markdown'
 import { supabase } from '@/lib/supabase'
 import BibleReader from '@/components/BibleReader'
 
-type Message = { role: 'user' | 'assistant'; content: string; sources?: any[] }
+type ExactPassage = { idx?: number; text: string; title: string; date?: string; source?: 'message' | 'bible'; ref?: string }
+type Message = { role: 'user' | 'assistant'; content: string; commentary?: string; exact_passages?: ExactPassage[]; sources?: any[] }
 type Folder = { id: string; name: string; color: string; created_at?: string }
 type SavedQuote = { id: string; quote_text: string; source_title: string; source_date: string; folder_id: string | null }
 type SearchResult = { quote_text: string; source_title: string; source_date: string; source: 'message' | 'bible'; relevance_score?: number }
@@ -774,10 +775,19 @@ export default function Home() {
       const res = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: q, user_id: user?.id || null }) })
       const data = await res.json()
       if (!res.ok) throw new Error(data?.error || 'Chat failed')
-      const content = typeof data?.response === 'string' && data.response.trim()
-        ? data.response
+      const commentary = typeof data?.commentary === 'string' && data.commentary.trim()
+        ? data.commentary
+        : (typeof data?.response === 'string' ? data.response : '')
+      const content = commentary && commentary.trim()
+        ? commentary
         : 'I could not generate a response for that query yet. Please try again with a more specific phrase.'
-      setMessages([...next, { role: 'assistant', content, sources: Array.isArray(data?.sources) ? data.sources : [] }])
+      setMessages([...next, {
+        role: 'assistant',
+        content,
+        commentary: content,
+        exact_passages: Array.isArray(data?.exact_passages) ? data.exact_passages : [],
+        sources: Array.isArray(data?.sources) ? data.sources : [],
+      }])
     } catch (error: any) {
       setMessages([...next, { role: 'assistant', content: error?.message || 'Something went wrong.', sources: [] }])
     }
@@ -1402,18 +1412,22 @@ export default function Home() {
                                   p: ({ children }) => <p style={{ margin: '0 0 14px', lineHeight: 1.78, fontWeight: 430, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{children}</p>,
                                   h2: ({ children }) => <h2 style={{ ...h2, marginTop: 18, marginBottom: 12 }}>{children}</h2>,
                                   h3: ({ children }) => <h3 style={{ ...h2, fontSize: '1.05em', marginTop: 16, marginBottom: 10 }}>{children}</h3>,
-                                  blockquote: ({ children }) => {
-                                    const quoteText = getPlainTextFromNode(children).trim()
-                                    return (
-                                      <div style={{ position: 'relative', margin: '14px 0 18px' }}>
-                                        <blockquote style={{ margin: 0, borderLeft: `3px solid ${CTA}`, paddingLeft: 14, paddingRight: 34, lineHeight: 1.8, fontWeight: 440, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{children}</blockquote>
-                                        <button onClick={() => { if (!user) return showToast('Sign in to save quotes'); if (!quoteText) return; setSaveModal({ text: quoteText, title: m.sources?.[0]?.title || 'William Branham Sermon', date: m.sources?.[0]?.date || '' }) }} style={{ ...pillBtn(t), position: 'absolute', top: -1, right: 0, width: 28, height: 28, padding: 0, display: 'grid', placeItems: 'center' }}>
-                                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="m19 21-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
-                                        </button>
+                                }}>{m.commentary || m.content || ''}</ReactMarkdown>
+
+                                {Array.isArray(m.exact_passages) && m.exact_passages.length > 0 && (
+                                  <div style={{ marginTop: 10, display: 'grid', gap: 10 }}>
+                                    {m.exact_passages.map((p, pIdx) => (
+                                      <div key={`${p.title}-${p.date}-${pIdx}`} style={{ ...card(t), marginBottom: 0, padding: '10px 12px' }}>
+                                        <div style={{ fontSize: 12, color: t.text2, marginBottom: 6 }}>
+                                          Exact quote from {p.title || (p.source === 'bible' ? 'KJV Bible' : 'William Branham Sermon')}{p.date ? ` (${p.date})` : ''}{p.ref ? ` [#${p.ref}]` : ''}:
+                                        </div>
+                                        <blockquote style={{ margin: 0, borderLeft: `3px solid ${CTA}`, paddingLeft: 12, lineHeight: 1.8, fontWeight: 440, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
+                                          {p.text}
+                                        </blockquote>
                                       </div>
-                                    )
-                                  },
-                                }}>{m.content || ''}</ReactMarkdown>
+                                    ))}
+                                  </div>
+                                )}
 
                                 {m.sources && m.sources.length > 0 && (
                                   <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 14, minWidth: 0 }}>
@@ -1427,7 +1441,7 @@ export default function Home() {
                                             title: s?.title || '',
                                             date: s?.date || '',
                                             ref: s?.ref || '',
-                                            quote: extractSavableQuote(m.content || ''),
+                                            quote: (m.exact_passages?.[0]?.text || extractSavableQuote(m.content || '')).trim(),
                                           })
                                         }}
                                         style={{ background: t.bg3, border: `1px solid ${t.border}`, borderRadius: 12, padding: '10px 12px', minWidth: 0, maxWidth: '100%', flex: '1 1 140px', textAlign: 'left', cursor: s?.source === 'message' ? 'pointer' : 'default' }}
@@ -1441,7 +1455,7 @@ export default function Home() {
 
                                 <div style={{ display: 'flex', gap: 6, marginTop: 14, flexWrap: 'wrap', minWidth: 0 }}>
                                   <button type="button" onClick={() => copyText(m.content, i)} style={pillBtn(t)}>{copied === i ? 'Copied' : 'Copy'}</button>
-                                  <button type="button" onClick={() => { if (!user) return showToast('Sign in to save quotes'); setSaveModal({ text: extractSavableQuote(m.content || ''), title: m.sources?.[0]?.title || 'William Branham Sermon', date: m.sources?.[0]?.date || '' }) }} style={pillBtn(t)}>Save</button>
+                                  <button type="button" onClick={() => { if (!user) return showToast('Sign in to save quotes'); const preferred = m.exact_passages?.[0]?.text || extractSavableQuote(m.content || ''); setSaveModal({ text: preferred, title: m.sources?.[0]?.title || 'William Branham Sermon', date: m.sources?.[0]?.date || '' }) }} style={pillBtn(t)}>Save</button>
                                 </div>
                               </div>
                             </div>

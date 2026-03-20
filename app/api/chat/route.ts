@@ -118,8 +118,14 @@ function getMeaningfulTokens(query: string): string[] {
 }
 
 function buildLocalFallbackAnswer(query: string, rows: HybridRow[]): string {
-  if (!rows.length) return 'I need more specific information to answer this accurately.'
-  return 'I need more specific information to answer this accurately.'
+  if (!rows.length) {
+    return 'I found these related passages but none contain a direct statement on this specific question. Here is what was found:\n\n(No passages were retrieved.)\n\nAll quotes are exact and verbatim from William Branham\'s recorded sermons or the KJV Bible.'
+  }
+  const raw = rows
+    .slice(0, 8)
+    .map((r, i) => `${i + 1}. [${r.source.toUpperCase()}] ${r.title}${r.date ? ` (${r.date})` : ''}${r.ref ? ` [#${r.ref}]` : ''}\n${r.text}`)
+    .join('\n\n')
+  return `I found these related passages but none contain a direct statement on this specific question. Here is what was found:\n\n${raw}\n\nAll quotes are exact and verbatim from William Branham's recorded sermons or the KJV Bible.`
 }
 
 function enforceSourceDiversity(rows: HybridRow[], maxPerSermon = 2, maxTotal = 20): HybridRow[] {
@@ -396,9 +402,17 @@ export async function POST(request: NextRequest) {
     reranked = enforceSourceDiversity(reranked, 2, 8)
     rerankMs = Date.now() - startedAt - retrievalMs
 
-    const passages = reranked.map((r, idx) =>
-      `${idx + 1}. [${r.source.toUpperCase()}] ${r.title}${r.date ? ` (${r.date})` : ''}${r.ref ? ` #${r.ref}` : ''}\n${r.text.slice(0, 950)}`
-    ).join('\n\n')
+    const exact_passages = reranked.slice(0, 8).map((r, idx) => ({
+      idx: idx + 1,
+      text: r.text,
+      title: r.title,
+      date: r.date,
+      source: r.source,
+      ref: r.ref || '',
+    }))
+    const passages = exact_passages
+      .map((p) => `${p.idx}. [${p.source.toUpperCase()}] ${p.title}${p.date ? ` (${p.date})` : ''}${p.ref ? ` #${p.ref}` : ''}\n${p.text.slice(0, 950)}`)
+      .join('\n\n')
 
     console.log('chat_context_debug', {
       chunk_count: reranked.length,
@@ -407,27 +421,38 @@ export async function POST(request: NextRequest) {
     console.log('chat_context_full', passages)
 
     const systemPrompt = toAscii(`
-PASSAGES (use these first and directly):
+ABSOLUTE RULE: You may NEVER paraphrase, summarize, or reword William Branham's sermons or the KJV Bible. Every quote must be word-for-word exact from the provided passages. If you cannot find an exact quote in the passages that answers the question, say so clearly - do not invent or approximate his words under any circumstances. Misquoting William Branham is worse than giving no answer at all.
+
+PASSAGES (use only these):
 ${passages}
 
-You are a William Branham research assistant.
-Below are actual excerpts from his sermons and the KJV Bible.
-You MUST quote directly from these excerpts.
-If the excerpts contain relevant content, you MUST use it.
-Never say quotes are unavailable if text is provided below.
+You have no knowledge of William Branham outside of the passages provided. Do not draw on any outside knowledge about him.
 Never recommend external sources, websites, books, apps, or ministries.
 Do not tell the user to search elsewhere.
 Never suggest alternative search terms.
 
-Write the response in this exact structure:
-1) Opening summary paragraph (natural, direct)
-2) ## Direct Quotes
-   - Include multiple markdown blockquotes (every quoted line starts with >)
-   - After each quote, include source line: — Sermon Title (Date) [#Reference]
-3) ## Key Scriptures
-   - Always include at least 2-3 KJV scripture references relevant to the topic
-   - You may include relevant KJV references from biblical knowledge even if not present in context
-4) Brief synthesis paragraph at the end
+When quoting:
+- Copy the text exactly as it appears in the passage
+- Put it in a markdown blockquote
+- Label each quote exactly as: Exact quote from [sermon title] ([date]):
+- Include paragraph/chunk reference if available as [#reference]
+- Never paraphrase even a single sentence
+
+When summarizing context around quotes:
+- You may write your own words to introduce or explain a quote
+- You may never put words in Branham's mouth
+- Clearly separate your explanation from exact quotes
+
+If the retrieved passages do not contain a direct quote answering the question, respond exactly with:
+I found these related passages but none contain a direct statement on this specific question. Here is what was found: [show the raw passages]
+
+IMPORTANT OUTPUT RULE FOR THIS API:
+- Do NOT output quote text from passages.
+- Do NOT use blockquotes.
+- Write commentary only (your own explanatory words) that references passage numbers like [1], [2], [3].
+- Keep commentary concise and factual.
+5) Final line (always include exactly):
+All quotes are exact and verbatim from William Branham's recorded sermons or the KJV Bible.
     `)
 
     if (!reranked.length || !passages.trim()) {
@@ -448,12 +473,14 @@ Write the response in this exact structure:
       })
       return NextResponse.json({
         response: buildLocalFallbackAnswer(query, reranked),
+        commentary: buildLocalFallbackAnswer(query, reranked),
+        exact_passages: [],
         sources: [],
         retrieval_meta,
       })
     }
 
-    let response = ''
+    let commentary = ''
     try {
       const ai = await anthropic.messages.create({
         model: 'claude-sonnet-4-6',
@@ -461,11 +488,13 @@ Write the response in this exact structure:
         system: systemPrompt,
         messages: [{ role: 'user', content: toAscii(query) }],
       })
-      response = getAnthropicText(ai?.content)
+      commentary = getAnthropicText(ai?.content)
     } catch {
-      response = ''
+      commentary = ''
     }
-    if (!response) response = buildLocalFallbackAnswer(query, reranked)
+    if (!commentary) commentary = buildLocalFallbackAnswer(query, reranked)
+    const disclaimer = "All quotes are exact and verbatim from William Branham's recorded sermons or the KJV Bible."
+    if (!commentary.includes(disclaimer)) commentary = `${commentary.trim()}\n\n${disclaimer}`
     answerMs = Date.now() - startedAt - retrievalMs - rerankMs
 
     const retrieval_meta: RetrievalMeta = {
@@ -484,7 +513,9 @@ Write the response in this exact structure:
     })
 
     return NextResponse.json({
-      response,
+      response: commentary,
+      commentary,
+      exact_passages,
       sources: reranked.slice(0, 8).map(r => ({
         title: r.title,
         date: r.date,
