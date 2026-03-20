@@ -277,7 +277,7 @@ export default function Home() {
   const [authLoading, setAuthLoading] = useState(false)
   const [authError, setAuthError] = useState('')
 
-  const [mode, setMode] = useState<'chat' | 'search'>('chat')
+  const [mode, setMode] = useState<'chat' | 'search'>('search')
   const [searchSource, setSearchSource] = useState<SearchSource>('both')
   const [searchMatchType, setSearchMatchType] = useState<SearchMatchType>('exact_phrase')
   const [searchSortMode, setSearchSortMode] = useState<SearchSortMode>('relevance')
@@ -831,7 +831,7 @@ export default function Home() {
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
             <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
               <div style={{ display: 'inline-flex', gap: 2, background: t.bg3, borderRadius: 999, padding: 4, alignItems: 'center' }}>
-                {(['chat', 'search'] as const).map(v => {
+                {(['search', 'chat'] as const).map(v => {
                   const active = mode === v
                   const ns = active ? navSelectedStyle(darkMode, accentTheme) : null
                   return (
@@ -845,13 +845,14 @@ export default function Home() {
                         padding: '7px 12px',
                         background: ns ? ns.background : 'transparent',
                         color: ns ? ns.color : t.text2,
-                        fontWeight: 600,
+                        fontWeight: active ? 700 : 600,
                         fontSize: '0.875em',
                         cursor: 'pointer',
                         transition: 'all 0.15s ease',
                         display: 'inline-flex',
                         alignItems: 'center',
                         gap: 6,
+                        opacity: active ? 1 : 0.9,
                       }}
                     >
                       {v === 'chat' ? (
@@ -1069,7 +1070,7 @@ export default function Home() {
               type="button"
               onClick={() => {
                 setView('chat')
-                setMode('chat')
+                setMode('search')
                 setMessages([])
                 setSearchResults([])
                 setFoldersListOnly(false)
@@ -1082,22 +1083,22 @@ export default function Home() {
             {(
               [
                 {
-                  key: 'chat',
-                  label: 'Chat',
-                  active: view === 'chat' && mode === 'chat',
-                  onClick: () => {
-                    setView('chat')
-                    setMode('chat')
-                    setFoldersListOnly(false)
-                  },
-                },
-                {
                   key: 'search',
                   label: 'Search',
                   active: view === 'chat' && mode === 'search',
                   onClick: () => {
                     setView('chat')
                     setMode('search')
+                    setFoldersListOnly(false)
+                  },
+                },
+                {
+                  key: 'chat',
+                  label: 'Chat',
+                  active: view === 'chat' && mode === 'chat',
+                  onClick: () => {
+                    setView('chat')
+                    setMode('chat')
                     setFoldersListOnly(false)
                   },
                 },
@@ -1226,8 +1227,8 @@ export default function Home() {
               )}
               <div style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap', background: t.bg2, border: `1px solid ${t.border}`, borderRadius: 999, padding: 4 }}>
                 {([
-                  { id: 'chat', label: 'Chat', onClick: () => { setView('chat'); setMode('chat') }, active: view === 'chat' && mode === 'chat' },
                   { id: 'search', label: 'Search', onClick: () => { setView('chat'); setMode('search') }, active: view === 'chat' && mode === 'search' },
+                  { id: 'chat', label: 'Chat', onClick: () => { setView('chat'); setMode('chat') }, active: view === 'chat' && mode === 'chat' },
                   { id: 'bible', label: 'Bible', onClick: () => setView('bible'), active: view === 'bible' },
                   { id: 'folders', label: 'Folders', onClick: () => { setView('bookmarks'); setActiveFolder(null); setFoldersListOnly(true) }, active: view === 'bookmarks' },
                   { id: 'sermons', label: 'Sermon Library', onClick: () => setView('sermons'), active: view === 'sermons' || view === 'reader' },
