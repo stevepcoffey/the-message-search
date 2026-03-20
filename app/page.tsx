@@ -1,8 +1,9 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { supabase } from '@/lib/supabase'
+import BibleReader from '@/components/BibleReader'
 
 type Message = { role: 'user' | 'assistant'; content: string; sources?: any[] }
 type Folder = { id: string; name: string; color: string; created_at?: string }
@@ -17,6 +18,20 @@ const CTA = '#72A276'
 /** Light mint — highlights, dark-mode titles, subtle accents */
 const MINT = '#A0EEC0'
 const CTA_MUTED_BG = 'rgba(114, 162, 118, 0.18)'
+
+/** Selected nav / tab: dark green field + light green label (matches sidebar mockups). */
+function navSelectedStyle(darkMode: boolean): { background: string; color: string } {
+  return darkMode
+    ? { background: 'rgba(72, 122, 76, 0.48)', color: MINT }
+    : { background: 'rgba(114, 162, 118, 0.22)', color: CTA }
+}
+
+const LANDING_EXAMPLES: { mode: 'chat' | 'search'; label: string; q: string }[] = [
+  { mode: 'chat', label: 'Chat', q: 'What does Branham say about the Bride?' },
+  { mode: 'chat', label: 'Chat', q: 'Explain the seven church ages' },
+  { mode: 'search', label: 'Exact phrase', q: '"The holy ghost is"' },
+  { mode: 'search', label: 'Exact phrase', q: '"born again"' },
+]
 
 const COLORS = ['#A0EEC0', '#72A276', '#525252', '#404040', '#262626', '#000000']
 
@@ -55,11 +70,75 @@ const SERMON_PARAS = [
   'When a man is truly born again, old things pass away and a new life appears.',
 ]
 
-const BIBLE_VERSES = [
-  { ref: 'John 3:3', text: 'Jesus answered and said unto him, Verily, verily, I say unto thee, Except a man be born again, he cannot see the kingdom of God.' },
-  { ref: 'John 3:5', text: 'Except a man be born of water and of the Spirit, he cannot enter into the kingdom of God.' },
-  { ref: 'Romans 8:16', text: 'The Spirit itself beareth witness with our spirit, that we are the children of God.' },
-]
+function HomeLanding({
+  t,
+  onPick,
+}: {
+  t: (typeof ui)['light']
+  onPick: (mode: 'chat' | 'search', q: string) => void
+}) {
+  return (
+    <div style={{ maxWidth: 640, margin: '0 auto', padding: '8px 0 28px', textAlign: 'center' }}>
+      <div
+        style={{
+          width: 48,
+          height: 48,
+          margin: '0 auto 18px',
+          borderRadius: 12,
+          background: CTA,
+          display: 'grid',
+          placeItems: 'center',
+        }}
+        aria-hidden
+      >
+        <svg width="24" height="24" viewBox="0 0 20 20" fill="none">
+          <path d="M10 2L3 5.5V10c0 4.1 3 7.7 7 8.5 4-.8 7-4.4 7-8.5V5.5L10 2z" stroke="white" strokeWidth="1.5" strokeLinejoin="round" />
+          <path d="M7 10l2 2 4-4" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </div>
+      <h1 style={{ ...h1, fontSize: 'clamp(1.35rem, 4vw, 1.85rem)', fontWeight: 700, marginBottom: 14, letterSpacing: '-0.02em' }}>Search the Message &amp; Bible</h1>
+      <p
+        style={{
+          color: t.text2,
+          fontSize: 'clamp(0.95rem, 2.5vw, 1.05rem)',
+          lineHeight: 1.65,
+          margin: '0 auto 28px',
+          maxWidth: 520,
+          textAlign: 'center',
+        }}
+      >
+        Chat for AI answers, or search for exact quotes from William Branham&apos;s sermons and the KJV Bible. Results from both sources appear together.
+      </p>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(148px, 1fr))',
+          gap: 12,
+          textAlign: 'left',
+        }}
+      >
+        {LANDING_EXAMPLES.map((ex, i) => (
+          <button
+            key={i}
+            type="button"
+            onClick={() => onPick(ex.mode, ex.q)}
+            style={{
+              ...card(t),
+              cursor: 'pointer',
+              textAlign: 'left',
+              marginBottom: 0,
+              padding: 14,
+              transition: 'transform 0.12s ease, box-shadow 0.12s ease',
+            }}
+          >
+            <div style={{ fontSize: 10, letterSpacing: '0.1em', color: CTA, fontWeight: 700, marginBottom: 10, textTransform: 'uppercase' }}>{ex.label}</div>
+            <div style={{ color: t.text, fontWeight: 500, lineHeight: 1.5, fontSize: '0.95em' }}>{ex.q}</div>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 export default function Home() {
   const [view, setView] = useState<View>('chat')
@@ -96,6 +175,11 @@ export default function Home() {
   const [toast, setToast] = useState('')
 
   const [currentSermon, setCurrentSermon] = useState(SERMONS[0])
+  const [bibleLoc, setBibleLoc] = useState({ book: 'Genesis', chapter: 1 })
+
+  const onBibleBookChapter = useCallback((b: string, c: number) => {
+    setBibleLoc({ book: b, chapter: c })
+  }, [])
 
   const taRef = useRef<HTMLTextAreaElement>(null)
   const endRef = useRef<HTMLDivElement>(null)
@@ -349,9 +433,8 @@ export default function Home() {
             {[
               ['chat', 'Chat'],
               ['sermons', 'Sermon Library'],
-              ['bible', 'Bible'],
             ].map(([id, label]) => (
-              <button type="button" key={id} onClick={() => setView(id as View)} style={{ ...navBtn(t, view === id), marginBottom: 2, flexShrink: 0, ...(id === 'chat' && view === 'chat' ? { background: CTA, color: '#ffffff' } : {}) }}>{label}</button>
+              <button type="button" key={id} onClick={() => setView(id as View)} style={{ ...navBtn(t, view === id, darkMode), marginBottom: 2, flexShrink: 0 }}>{label}</button>
             ))}
 
             <div style={{ marginTop: 10, borderTop: `1px solid ${t.border}`, paddingTop: 8, flex: 1, minHeight: 0, overflowY: 'auto' }}>
@@ -393,7 +476,7 @@ export default function Home() {
             </div>
 
             <div style={{ marginTop: 'auto', flexShrink: 0, borderTop: `1px solid ${t.border}`, paddingTop: 8 }}>
-              <button type="button" onClick={() => setView('settings')} style={{ ...navBtn(t, view === 'settings'), width: '100%', marginBottom: 8 }}>Settings</button>
+              <button type="button" onClick={() => setView('settings')} style={{ ...navBtn(t, view === 'settings', darkMode), width: '100%', marginBottom: 8 }}>Settings</button>
             </div>
 
             <div style={{ borderTop: `1px solid ${t.border}`, paddingTop: 8, flexShrink: 0 }}>
@@ -413,15 +496,58 @@ export default function Home() {
         </aside>
 
         <main style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-          <header style={{ height: 52, borderBottom: `1px solid ${t.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 14px', background: t.bg }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              {!sidebarOpen && <button onClick={() => setSidebarOpen(true)} style={iconBtn(t)}>☰</button>}
-              <span style={{ fontSize: '0.875em', color: t.text2, overflowWrap: 'anywhere' }}>{viewTitle(view, currentSermon.title)}</span>
+          <header style={{ minHeight: 52, borderBottom: `1px solid ${t.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', padding: '8px 14px', background: t.bg }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', flex: 1, minWidth: 0 }}>
+              {!sidebarOpen && (
+                <button type="button" onClick={() => setSidebarOpen(true)} style={iconBtn(t)}>
+                  ☰
+                </button>
+              )}
+              <nav style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
+                {(
+                  [
+                    { key: 'chat', label: 'Chat', onClick: () => { setView('chat'); setMode('chat') }, active: view === 'chat' && mode === 'chat' },
+                    { key: 'search', label: 'Search', onClick: () => { setView('chat'); setMode('search') }, active: view === 'chat' && mode === 'search' },
+                    { key: 'folders', label: 'Folders', onClick: () => { setView('bookmarks'); setActiveFolder(null) }, active: view === 'bookmarks' },
+                    { key: 'bible', label: 'Bible', onClick: () => setView('bible'), active: view === 'bible' },
+                  ] as const
+                ).map(tab => {
+                  const ns = tab.active ? navSelectedStyle(darkMode) : null
+                  return (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    onClick={tab.onClick}
+                    style={{
+                      border: 'none',
+                      borderRadius: 999,
+                      padding: '6px 12px',
+                      fontWeight: 600,
+                      fontSize: '0.8125em',
+                      cursor: 'pointer',
+                      background: ns ? ns.background : t.bg3,
+                      color: ns ? ns.color : t.text2,
+                      transition: 'background 0.15s ease, color 0.15s ease',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {tab.label}
+                  </button>
+                  )
+                })}
+              </nav>
+              <span style={{ fontSize: '0.875em', color: t.text2, overflowWrap: 'anywhere', fontWeight: 500 }}>
+                {view === 'bible'
+                  ? `${bibleLoc.book} · Chapter ${bibleLoc.chapter}`
+                  : view === 'reader'
+                    ? currentSermon.title
+                    : viewTitle(view, currentSermon.title)}
+              </span>
             </div>
-            <div style={{ display: 'flex', gap: 6 }}>
-              <button onClick={() => setFontSize(v => Math.max(14, v - 1))} style={iconBtn(t)}>A-</button>
-              <button onClick={() => setFontSize(v => Math.min(20, v + 1))} style={iconBtn(t)}>A+</button>
-              <button onClick={() => setDarkMode(v => !v)} style={iconBtn(t)}>{darkMode ? '☀' : '☾'}</button>
+            <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+              <button type="button" onClick={() => setFontSize(v => Math.max(14, v - 1))} style={iconBtn(t)}>A-</button>
+              <button type="button" onClick={() => setFontSize(v => Math.min(20, v + 1))} style={iconBtn(t)}>A+</button>
+              <button type="button" onClick={() => setDarkMode(v => !v)} style={iconBtn(t)}>{darkMode ? '☀' : '☾'}</button>
             </div>
           </header>
 
@@ -431,7 +557,9 @@ export default function Home() {
                 <div style={{ maxWidth: 760, margin: '0 auto', minWidth: 0 }}>
                   {mode === 'search' ? (
                     <>
-                      {!searchResults.length && !loading && <div style={emptyCard(t)}><h1 style={h1}>Search the Message & Bible</h1><p style={{ color: t.text2 }}>Exact raw passages from sermons and KJV Bible.</p></div>}
+                      {!searchResults.length && !loading && (
+                        <HomeLanding t={t} onPick={(m, q) => { setMode(m); setQuery(q); setTimeout(() => taRef.current?.focus(), 0) }} />
+                      )}
                       {searchResults.map((r, i) => (
                         <div key={i} style={{ ...card(t), overflow: 'hidden', minWidth: 0 }}>
                           <p style={{ margin: 0, borderLeft: `3px solid ${CTA}`, paddingLeft: 12, fontStyle: 'italic', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>"{r.quote_text}"</p>
@@ -450,7 +578,9 @@ export default function Home() {
                     </>
                   ) : (
                     <>
-                      {!messages.length && !loading && <div style={emptyCard(t)}><h1 style={h1}>Search the Message & Bible</h1><p style={{ color: t.text2 }}>Chat for AI answers, or search exact passages.</p></div>}
+                      {!messages.length && !loading && (
+                        <HomeLanding t={t} onPick={(m, q) => { setMode(m); setQuery(q); setTimeout(() => taRef.current?.focus(), 0) }} />
+                      )}
                       {messages.map((m, i) => (
                         <div key={i} style={{ marginBottom: 16 }}>
                           {m.role === 'user' ? (
@@ -510,31 +640,93 @@ export default function Home() {
               <div style={{ flexShrink: 0, borderTop: `1px solid ${t.border}`, padding: '10px 14px 14px', background: t.bg }}>
                 <div style={{ maxWidth: 760, margin: '0 auto', minWidth: 0 }}>
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
-                    <div style={{ display: 'inline-flex', gap: 2, background: t.bg3, borderRadius: 999, padding: 4, flexWrap: 'wrap', maxWidth: '100%' }}>
-                      {(['chat', 'search'] as const).map(v => (
-                        <button type="button" key={v} onClick={() => setMode(v)} style={{ border: 'none', borderRadius: 999, padding: '8px 14px', background: mode === v ? (v === 'chat' ? CTA : t.bg) : 'transparent', color: mode === v ? (v === 'chat' ? '#fff' : t.text) : t.text2, fontWeight: 600, fontSize: '0.9375em', cursor: 'pointer', transition: 'all 0.15s ease', whiteSpace: 'normal', wordBreak: 'break-word', overflowWrap: 'anywhere', textAlign: 'center', minWidth: 0, maxWidth: '100%' }}>{v === 'chat' ? 'Chat' : 'Search'}</button>
-                      ))}
+                    <div style={{ display: 'inline-flex', gap: 2, background: t.bg3, borderRadius: 999, padding: 4, flexWrap: 'wrap', maxWidth: '100%', alignItems: 'center' }}>
+                      {(['chat', 'search'] as const).map(v => {
+                        const active = mode === v
+                        const ns = active ? navSelectedStyle(darkMode) : null
+                        return (
+                          <button
+                            type="button"
+                            key={v}
+                            onClick={() => setMode(v)}
+                            style={{
+                              border: 'none',
+                              borderRadius: 999,
+                              padding: '8px 14px',
+                              background: ns ? ns.background : 'transparent',
+                              color: ns ? ns.color : t.text2,
+                              fontWeight: 600,
+                              fontSize: '0.9375em',
+                              cursor: 'pointer',
+                              transition: 'all 0.15s ease',
+                              whiteSpace: 'normal',
+                              wordBreak: 'break-word',
+                              overflowWrap: 'anywhere',
+                              textAlign: 'center',
+                              minWidth: 0,
+                              maxWidth: '100%',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 6,
+                            }}
+                          >
+                            {v === 'chat' ? (
+                              <>
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
+                                Chat
+                              </>
+                            ) : (
+                              <>
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden><circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" /></svg>
+                                Search
+                              </>
+                            )}
+                          </button>
+                        )
+                      })}
+                      <span style={{ fontSize: 12, fontStyle: 'italic', color: t.text3, padding: '0 8px', maxWidth: 220, lineHeight: 1.35 }}>
+                        {mode === 'chat' ? 'AI answer with sources' : 'Exact matches in sermon & Bible text'}
+                      </span>
                     </div>
                     {mode === 'search' && (
                       <div style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap', minWidth: 0, maxWidth: '100%' }}>
-                        {(['both', 'message', 'bible'] as SearchSource[]).map(s => (
-                          <button type="button" key={s} onClick={() => setSearchSource(s)} style={{ ...pillBtn(t), background: searchSource === s ? CTA : t.bg3, borderColor: searchSource === s ? CTA : t.border, color: searchSource === s ? '#ffffff' : t.text2, minWidth: 0, maxWidth: '100%', whiteSpace: 'normal', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
-                            {s === 'both' ? 'Both' : s === 'message' ? 'Message' : 'Bible'}
-                          </button>
-                        ))}
+                        {(['both', 'message', 'bible'] as SearchSource[]).map(s => {
+                          const active = searchSource === s
+                          const ns = active ? navSelectedStyle(darkMode) : null
+                          return (
+                            <button
+                              type="button"
+                              key={s}
+                              onClick={() => setSearchSource(s)}
+                              style={{
+                                ...pillBtn(t),
+                                background: ns ? ns.background : t.bg3,
+                                borderColor: active ? (darkMode ? 'rgba(160,238,192,0.35)' : 'rgba(26,61,36,0.25)') : t.border,
+                                color: ns ? ns.color : t.text2,
+                                minWidth: 0,
+                                maxWidth: '100%',
+                                whiteSpace: 'normal',
+                                wordBreak: 'break-word',
+                                overflowWrap: 'anywhere',
+                              }}
+                            >
+                              {s === 'both' ? 'Both' : s === 'message' ? 'Message' : 'Bible'}
+                            </button>
+                          )
+                        })}
                       </div>
                     )}
                   </div>
 
                   <div style={{ borderRadius: 24, background: t.bg, border: `1px solid ${composerFocused ? CTA : t.border}`, boxShadow: t.shadow, display: 'flex', gap: 8, alignItems: 'flex-end', minHeight: 56, padding: '8px 10px 8px 14px', transition: 'all 0.15s ease', minWidth: 0 }}>
                     <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', minHeight: 36 }}>
-                      <textarea ref={taRef} value={query} onChange={e => setQuery(e.target.value)} onFocus={() => setComposerFocused(true)} onBlur={() => setComposerFocused(false)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }} placeholder={mode === 'chat' ? 'Ask about The Message or the Bible...' : 'Search passages directly...'} rows={1} style={{ width: '100%', minWidth: 0, border: 'none', outline: 'none', resize: 'none', background: 'transparent', color: t.text, fontSize: '1em', fontWeight: 500, lineHeight: 1.45, height: 24, padding: 0, margin: 0, maxHeight: 140, overflowWrap: 'anywhere', wordBreak: 'break-word' }} />
+                      <textarea ref={taRef} value={query} onChange={e => setQuery(e.target.value)} onFocus={() => setComposerFocused(true)} onBlur={() => setComposerFocused(false)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }} placeholder={mode === 'chat' ? 'Ask anything about the Message or the Bible…' : 'Search exact phrases in sermons and the KJV…'} rows={1} style={{ width: '100%', minWidth: 0, border: 'none', outline: 'none', resize: 'none', background: 'transparent', color: t.text, fontSize: '1em', fontWeight: 500, lineHeight: 1.45, height: 24, padding: 0, margin: 0, maxHeight: 140, overflowWrap: 'anywhere', wordBreak: 'break-word' }} />
                     </div>
                     <button type="button" onClick={send} disabled={!query.trim() || loading} style={{ flexShrink: 0, width: 40, height: 40, borderRadius: 999, border: 'none', background: query.trim() && !loading ? CTA : t.bg3, color: query.trim() && !loading ? '#fff' : t.text2, display: 'grid', placeItems: 'center', cursor: query.trim() && !loading ? 'pointer' : 'default', transition: 'all 0.15s ease' }}>
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 2L11 13"/><path d="M22 2L15 22l-4-9-9-4 20-7z"/></svg>
                     </button>
                   </div>
-                  <p style={{ textAlign: 'center', marginTop: 7, color: t.text2, fontSize: '0.8125em', padding: '0 4px', overflowWrap: 'anywhere' }}>Sources limited to William Branham sermons and the KJV Bible.</p>
+                  <p style={{ textAlign: 'center', marginTop: 7, color: t.text2, fontSize: '0.8125em', padding: '0 4px', overflowWrap: 'anywhere' }}>Sources limited to William Branham&apos;s sermons and the KJV Bible.</p>
                 </div>
               </div>
             </div>
@@ -632,18 +824,16 @@ export default function Home() {
           )}
 
           {view === 'bible' && (
-            <div style={panelWrap}>
-              <div style={panelInner}>
-                <h2 style={h2}>Bible</h2>
-                <p style={{ color: t.text2, fontSize: '0.875em', marginTop: -4, marginBottom: 12 }}>King James Version</p>
-                {BIBLE_VERSES.map(v => (
-                  <div key={v.ref} style={card(t)}>
-                    <div style={{ fontSize: 12, color: t.text2, marginBottom: 6 }}>{v.ref}</div>
-                    <p style={{ margin: 0, borderLeft: `3px solid ${CTA}`, paddingLeft: 10, fontStyle: 'italic' }}>{v.text}</p>
-                    <div style={{ marginTop: 8 }}><button onClick={() => { if (!user) return showToast('Sign in to save quotes'); setSaveModal({ text: v.text, title: v.ref, date: 'KJV' }) }} style={pillBtn(t)}>Save verse</button></div>
-                  </div>
-                ))}
-              </div>
+            <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+              <BibleReader
+                t={t}
+                darkMode={darkMode}
+                fontSize={fontSize}
+                user={user}
+                showToast={showToast}
+                setSaveModal={setSaveModal}
+                onBookChapterChange={onBibleBookChapter}
+              />
             </div>
           )}
 
@@ -714,8 +904,27 @@ function pillBtn(t: { bg3: string; border: string; text2: string }): React.CSSPr
 function iconBtn(t: { bg3: string; border: string; text2: string }): React.CSSProperties {
   return { width: 32, height: 32, borderRadius: 12, border: `1px solid ${t.border}`, background: t.bg3, color: t.text2, fontSize: '0.875em', cursor: 'pointer', transition: 'all 0.15s ease', flexShrink: 0, display: 'grid', placeItems: 'center', padding: 0 }
 }
-function navBtn(t: { bg3: string; border: string; text2: string; text: string }, active: boolean): React.CSSProperties {
-  return { width: '100%', maxWidth: '100%', boxSizing: 'border-box', borderRadius: 12, border: 'none', textAlign: 'left', padding: '9px 10px', background: active ? CTA_MUTED_BG : 'transparent', color: active ? CTA : t.text2, fontWeight: active ? 600 : 500, fontSize: '0.9375em', lineHeight: 1.35, cursor: 'pointer', transition: 'all 0.15s ease', whiteSpace: 'normal', wordBreak: 'break-word', overflowWrap: 'anywhere' }
+function navBtn(t: { bg3: string; border: string; text2: string; text: string }, active: boolean, darkMode: boolean): React.CSSProperties {
+  const ns = active ? navSelectedStyle(darkMode) : null
+  return {
+    width: '100%',
+    maxWidth: '100%',
+    boxSizing: 'border-box',
+    borderRadius: 12,
+    border: 'none',
+    textAlign: 'left',
+    padding: '9px 10px',
+    background: ns ? ns.background : 'transparent',
+    color: ns ? ns.color : t.text,
+    fontWeight: active ? 600 : 500,
+    fontSize: '0.9375em',
+    lineHeight: 1.35,
+    cursor: 'pointer',
+    transition: 'all 0.15s ease',
+    whiteSpace: 'normal',
+    wordBreak: 'break-word',
+    overflowWrap: 'anywhere',
+  }
 }
 function folderRowBtn(t: { text: string; text2: string }): React.CSSProperties {
   return { width: '100%', minWidth: 0, border: 'none', background: 'transparent', padding: '6px 8px', borderRadius: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, color: t.text, fontSize: '0.875em', textAlign: 'left', boxSizing: 'border-box' }
