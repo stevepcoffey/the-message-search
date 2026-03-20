@@ -10,6 +10,7 @@ type SavedQuote = { id: string; quote_text: string; source_title: string; source
 type SearchResult = { quote_text: string; source_title: string; source_date: string; source: 'message' | 'bible' }
 type SearchSource = 'both' | 'message' | 'bible'
 type View = 'chat' | 'sermons' | 'reader' | 'bookmarks' | 'bible' | 'settings'
+type HistoryItem = { id: string; text: string; mode: 'chat' | 'search' }
 
 const ACCENT = '#86CD82'
 const COLORS = ['#A0EEC0', '#8AE9C1', '#86CD82', '#72A276', '#666B6A', '#000000']
@@ -55,6 +56,7 @@ export default function Home() {
   const [query, setQuery] = useState('')
   const [messages, setMessages] = useState<Message[]>([])
   const [searchResults, setSearchResults] = useState<SearchResult[]>([])
+  const [history, setHistory] = useState<HistoryItem[]>([])
   const [loading, setLoading] = useState(false)
   const [composerFocused, setComposerFocused] = useState(false)
   const [copied, setCopied] = useState<number | null>(null)
@@ -75,6 +77,7 @@ export default function Home() {
   const taRef = useRef<HTMLTextAreaElement>(null)
   const endRef = useRef<HTMLDivElement>(null)
   const t = darkMode ? ui.dark : ui.light
+  const headingTone = darkMode ? '#D7F5D6' : '#1F1F1F'
 
   useEffect(() => {
     const saved = window.localStorage.getItem('apple-dark-mode')
@@ -219,6 +222,7 @@ export default function Home() {
     setLoading(true)
 
     if (mode === 'search') {
+      setHistory(prev => [{ id: `${Date.now()}`, text: q, mode: 'search' as const }, ...prev].slice(0, 20))
       try {
         const res = await fetch('/api/search', {
           method: 'POST',
@@ -236,6 +240,7 @@ export default function Home() {
       return
     }
 
+    setHistory(prev => [{ id: `${Date.now()}`, text: q, mode: 'chat' as const }, ...prev].slice(0, 20))
     const next = [...messages, { role: 'user', content: q } as Message]
     setMessages(next)
     try {
@@ -270,7 +275,7 @@ export default function Home() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: t.bg, color: t.text, fontFamily: fontStack, fontSize, fontWeight: 500, lineHeight: 1.7, transition: 'background 0.15s ease, color 0.15s ease' }}>
+    <div style={{ minHeight: '100vh', background: t.bg, color: t.text, fontFamily: fontStack, fontSize, fontWeight: 500, lineHeight: 1.7, transition: 'background 0.15s ease, color 0.15s ease', overflow: 'hidden' }}>
       {toast && <div style={{ position: 'fixed', bottom: 20, left: '50%', transform: 'translateX(-50%)', background: t.bg3, color: t.text, border: `1px solid ${t.border}`, borderRadius: 999, padding: '7px 12px', fontSize: 12, zIndex: 200 }}>{toast}</div>}
 
       {saveModal && (
@@ -309,7 +314,7 @@ export default function Home() {
               <button onClick={() => setSidebarOpen(false)} style={iconBtn(t)}>✕</button>
             </div>
 
-            <button onClick={() => { setView('chat'); setMode('chat'); setMessages([]); setSearchResults([]) }} style={{ ...primaryBtn(false), width: '100%', marginBottom: 8 }}>+ New search</button>
+            <button onClick={() => { setView('chat'); setMode('chat'); setMessages([]); setSearchResults([]) }} style={{ ...primaryBtn(false), width: '100%', marginBottom: 8, background: '#111111', color: '#ffffff' }}>+ New search</button>
 
             {[
               ['chat', 'Chat'],
@@ -318,7 +323,7 @@ export default function Home() {
               ['bible', 'Bible (KJV)'],
               ['settings', 'Settings'],
             ].map(([id, label]) => (
-              <button key={id} onClick={() => setView(id as View)} style={{ ...navBtn(t, view === id), marginBottom: 2 }}>{label}</button>
+              <button key={id} onClick={() => setView(id as View)} style={{ ...navBtn(t, view === id), marginBottom: 2, ...(id === 'chat' && view === 'chat' ? { background: '#111111', color: '#ffffff' } : {}) }}>{label}</button>
             ))}
 
             <div style={{ marginTop: 10, borderTop: `1px solid ${t.border}`, paddingTop: 8, flex: 1, overflowY: 'auto' }}>
@@ -330,6 +335,25 @@ export default function Home() {
                   <span style={{ width: 8, height: 8, borderRadius: 999, background: f.color }} />
                   <span style={{ flex: 1, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{f.name}</span>
                   <span style={{ fontSize: 11, color: t.text3 }}>{savedQuotes.filter(q => q.folder_id === f.id).length}</span>
+                </button>
+              ))}
+
+              <div style={{ fontSize: 10.5, color: t.text3, textTransform: 'uppercase', letterSpacing: '0.07em', padding: '12px 6px 4px' }}>History</div>
+              {history.length === 0 ? (
+                <p style={{ color: t.text2, fontSize: 12, padding: '0 6px' }}>No recent searches yet</p>
+              ) : history.map(item => (
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    setView('chat')
+                    setMode(item.mode)
+                    setQuery(item.text)
+                  }}
+                  style={{ ...folderRowBtn(t), padding: '7px 8px' }}
+                  title={item.text}
+                >
+                  <span style={{ width: 7, height: 7, borderRadius: 999, background: item.mode === 'chat' ? ACCENT : t.text3 }} />
+                  <span style={{ flex: 1, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.text}</span>
                 </button>
               ))}
             </div>
@@ -365,17 +389,17 @@ export default function Home() {
 
           {view === 'chat' && (
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-              <div style={{ flex: 1, overflowY: 'auto', padding: '18px 18px 0' }}>
+              <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '18px 18px 0' }}>
                 <div style={{ maxWidth: 760, margin: '0 auto' }}>
                   {mode === 'search' ? (
                     <>
                       {!searchResults.length && !loading && <div style={emptyCard(t)}><h1 style={h1}>Search the Message & Bible</h1><p style={{ color: t.text2 }}>Exact raw passages from sermons and KJV Bible.</p></div>}
                       {searchResults.map((r, i) => (
-                        <div key={i} style={card(t)}>
-                          <p style={{ margin: 0, borderLeft: `3px solid ${ACCENT}`, paddingLeft: 12, fontStyle: 'italic' }}>"{r.quote_text}"</p>
+                        <div key={i} style={{ ...card(t), overflow: 'hidden' }}>
+                          <p style={{ margin: 0, borderLeft: `3px solid ${ACCENT}`, paddingLeft: 12, fontStyle: 'italic', overflowWrap: 'anywhere' }}>"{r.quote_text}"</p>
                           <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                             <div>
-                              <div style={{ fontWeight: 600, color: ACCENT, fontSize: 13 }}>{r.source_title || (r.source === 'bible' ? 'KJV Bible' : 'William Branham Sermon')}</div>
+                              <div style={{ fontWeight: 600, color: headingTone, fontSize: 13 }}>{r.source_title || (r.source === 'bible' ? 'KJV Bible' : 'William Branham Sermon')}</div>
                               <div style={{ color: t.text2, fontSize: 12 }}>{r.source_date || (r.source === 'bible' ? 'KJV' : '')}</div>
                             </div>
                             <div style={{ display: 'flex', gap: 6 }}>
@@ -400,7 +424,7 @@ export default function Home() {
                               <div style={{ width: 28, height: 28, borderRadius: 10, border: `1px solid ${t.border}`, background: t.bg3, display: 'grid', placeItems: 'center' }}>
                                 <svg width="12" height="12" viewBox="0 0 20 20" fill="none"><path d="M10 2L3 5.5V10c0 4.1 3 7.7 7 8.5 4-.8 7-4.4 7-8.5V5.5L10 2z" stroke={ACCENT} strokeWidth="1.5" strokeLinejoin="round"/></svg>
                               </div>
-                              <div style={{ flex: 1, background: t.bg2, borderRadius: 14, border: `1px solid ${t.border}`, padding: '10px 12px' }}>
+                              <div style={{ flex: 1, background: t.bg2, borderRadius: 14, border: `1px solid ${t.border}`, padding: '10px 12px', overflow: 'hidden' }}>
                                 <ReactMarkdown components={{
                                   p: ({ children }) => <p style={{ margin: '0 0 8px' }}>{children}</p>,
                                   h2: ({ children }) => <h2 style={h2}>{children}</h2>,
@@ -421,8 +445,8 @@ export default function Home() {
                                 {m.sources && m.sources.length > 0 && (
                                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
                                     {m.sources.map((s: any, idx: number) => (
-                                      <div key={idx} style={{ background: t.bg3, border: `1px solid ${t.border}`, borderRadius: 12, padding: '8px 10px', minWidth: 150 }}>
-                                        <div style={{ fontSize: 12.5, fontWeight: 600, color: ACCENT }}>{s.title || 'William Branham Sermon'}</div>
+                                      <div key={idx} style={{ background: t.bg3, border: `1px solid ${t.border}`, borderRadius: 12, padding: '8px 10px', minWidth: 150, maxWidth: '100%' }}>
+                                        <div style={{ fontSize: 12.5, fontWeight: 600, color: headingTone, overflowWrap: 'anywhere' }}>{s.title || 'William Branham Sermon'}</div>
                                         <div style={{ fontSize: 11.5, color: t.text2 }}>{s.date || ''}{s.ref ? ` · #${s.ref}` : ''}</div>
                                       </div>
                                     ))}
@@ -456,7 +480,7 @@ export default function Home() {
                     {mode === 'search' && (
                       <div style={{ display: 'inline-flex', gap: 6 }}>
                         {(['both', 'message', 'bible'] as SearchSource[]).map(s => (
-                          <button key={s} onClick={() => setSearchSource(s)} style={{ ...pillBtn(t), background: searchSource === s ? `${ACCENT}28` : t.bg3, borderColor: searchSource === s ? ACCENT : t.border, color: searchSource === s ? ACCENT : t.text2 }}>
+                          <button key={s} onClick={() => setSearchSource(s)} style={{ ...pillBtn(t), background: searchSource === s ? '#111111' : t.bg3, borderColor: searchSource === s ? '#111111' : t.border, color: searchSource === s ? '#ffffff' : t.text2 }}>
                             {s === 'both' ? 'Both' : s === 'message' ? 'Message' : 'Bible'}
                           </button>
                         ))}
@@ -468,7 +492,7 @@ export default function Home() {
                     <div style={{ flex: 1, display: 'flex', alignItems: 'center', minHeight: 36 }}>
                       <textarea ref={taRef} value={query} onChange={e => setQuery(e.target.value)} onFocus={() => setComposerFocused(true)} onBlur={() => setComposerFocused(false)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }} placeholder={mode === 'chat' ? 'Ask about The Message or the Bible...' : 'Search passages directly...'} rows={1} style={{ width: '100%', border: 'none', outline: 'none', resize: 'none', background: 'transparent', color: t.text, fontSize: 16, fontWeight: 500, lineHeight: '24px', height: 24, padding: 0, margin: 0, maxHeight: 140 }} />
                     </div>
-                    <button onClick={send} disabled={!query.trim() || loading} style={{ width: 38, height: 38, borderRadius: 999, border: 'none', background: query.trim() && !loading ? ACCENT : t.bg3, color: query.trim() && !loading ? '#fff' : t.text2, display: 'grid', placeItems: 'center', cursor: query.trim() && !loading ? 'pointer' : 'default', transition: 'all 0.15s ease' }}>
+                    <button onClick={send} disabled={!query.trim() || loading} style={{ width: 38, height: 38, borderRadius: 999, border: 'none', background: query.trim() && !loading ? '#111111' : t.bg3, color: query.trim() && !loading ? '#fff' : t.text2, display: 'grid', placeItems: 'center', cursor: query.trim() && !loading ? 'pointer' : 'default', transition: 'all 0.15s ease' }}>
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 2L11 13"/><path d="M22 2L15 22l-4-9-9-4 20-7z"/></svg>
                     </button>
                   </div>
@@ -528,7 +552,7 @@ export default function Home() {
                         <p style={{ margin: 0, borderLeft: `3px solid ${ACCENT}`, paddingLeft: 10, fontStyle: 'italic' }}>"{q.quote_text}"</p>
                         <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
                           <div>
-                            <div style={{ fontWeight: 600, color: ACCENT, fontSize: 13 }}>{q.source_title}</div>
+                            <div style={{ fontWeight: 600, color: headingTone, fontSize: 13 }}>{q.source_title}</div>
                             <div style={{ color: t.text2, fontSize: 12 }}>{q.source_date}</div>
                           </div>
                           <button onClick={() => deleteQuote(q.id)} style={pillBtn(t)}>Remove</button>
@@ -556,7 +580,7 @@ export default function Home() {
                         <p style={{ margin: 0, borderLeft: `3px solid ${ACCENT}`, paddingLeft: 10, fontStyle: 'italic' }}>"{q.quote_text}"</p>
                         <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
                           <div>
-                            <div style={{ fontWeight: 600, color: ACCENT, fontSize: 13 }}>{q.source_title}</div>
+                            <div style={{ fontWeight: 600, color: headingTone, fontSize: 13 }}>{q.source_title}</div>
                             <div style={{ color: t.text2, fontSize: 12 }}>{q.source_date}</div>
                           </div>
                           <button onClick={() => deleteQuote(q.id)} style={pillBtn(t)}>Remove</button>
