@@ -268,6 +268,7 @@ export default function Home() {
   const loadSermons = useCallback(async (page: number, append: boolean) => {
     setSermonLoading(true)
     const q = sermonSearch.trim()
+    const yearQuery = /^\d{4}$/.test(q) ? Number(q) : null
     const from = page * SERMON_PAGE_SIZE
     const to = from + SERMON_PAGE_SIZE - 1
 
@@ -275,8 +276,13 @@ export default function Home() {
       .from('sermons')
       .select('id,title,date,location,reference_code,full_text,word_count', { count: 'exact' })
 
-    if (q) {
+    if (q && !yearQuery) {
       queryBuilder = queryBuilder.or(`title.ilike.%${q}%,reference_code.ilike.%${q}%`)
+    }
+    if (yearQuery) {
+      queryBuilder = queryBuilder
+        .gte('date', `${yearQuery}-01-01`)
+        .lt('date', `${yearQuery + 1}-01-01`)
     }
 
     if (sermonDecade === '1947-49') queryBuilder = queryBuilder.gte('date', '1947-01-01').lt('date', '1950-01-01')
