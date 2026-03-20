@@ -84,16 +84,21 @@ function buildLocalFallbackAnswer(query: string, rows: HybridRow[]): string {
 async function keywordFallbackRows(query: string): Promise<HybridRow[]> {
   const q = query.trim()
   if (!q) return []
+  const normalized = q.toLowerCase()
+  const aliasTerms: string[] = []
+  if (normalized.includes('holy spirit')) aliasTerms.push('holy ghost')
+  if (normalized.includes('holy ghost')) aliasTerms.push('holy spirit')
+  if (normalized.includes('spirit of god')) aliasTerms.push('holy spirit', 'holy ghost')
   const tokens = Array.from(
     new Set(
-      q
+      `${q} ${aliasTerms.join(' ')}`
         .toLowerCase()
         .split(/\s+/)
         .map(t => t.replace(/[^a-z0-9]/gi, '').trim())
         .filter(t => t.length >= 3)
     )
   ).slice(0, 6)
-  const ilikeParts = [q, ...tokens].filter(Boolean).map(t => `text.ilike.%${t}%`)
+  const ilikeParts = [q, ...aliasTerms, ...tokens].filter(Boolean).map(t => `text.ilike.%${t}%`)
   const orClause = ilikeParts.join(',')
 
   let sermonQuery = supabaseServer
@@ -315,8 +320,15 @@ Write the response in this exact structure:
 4) Brief synthesis paragraph at the end
 
 Context:
-${passages || '[No strong matches in current library context]'}
+${passages}
     `)
+
+    if (!reranked.length || !passages.trim()) {
+      return NextResponse.json({
+        response: buildLocalFallbackAnswer(query, reranked),
+        sources: [],
+      })
+    }
 
     let response = ''
     try {
