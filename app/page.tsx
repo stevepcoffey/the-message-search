@@ -633,6 +633,8 @@ export default function Home() {
     }
     return rows.sort((a, b) => getResultRelevanceScore(b) - getResultRelevanceScore(a))
   }, [searchResults, searchSortMode, lastSearchQuery, searchMatchType])
+  const messageSearchResults = useMemo(() => sortedSearchResults.filter(r => r.source === 'message'), [sortedSearchResults])
+  const bibleSearchResults = useMemo(() => sortedSearchResults.filter(r => r.source === 'bible'), [sortedSearchResults])
 
   const topRelevantTerms = useMemo(() => {
     if (!searchResults.length) return [] as string[]
@@ -1339,32 +1341,88 @@ export default function Home() {
                           </div>
                         </div>
                       )}
-                      {sortedSearchResults.map((r, i) => (
-                        <div key={i} style={{ ...card(t), marginBottom: 12, minWidth: 0, padding: 'clamp(14px, 2.3vw, 20px)' }}>
-                          <p style={{ margin: 0, borderLeft: `3px solid ${CTA}`, paddingLeft: 'clamp(12px, 1.8vw, 18px)', paddingRight: 'clamp(2px, 0.8vw, 8px)', lineHeight: 1.7, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
-                            "{highlightMatches(r.quote_text, lastSearchQuery, searchMatchType)}"
-                          </p>
-                          <div style={{ marginTop: 12, display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', flexWrap: 'wrap', minWidth: 0 }}>
-                            <div style={{ minWidth: 0, flex: '1 1 140px' }}>
-                              <div style={{ fontWeight: 600, color: headingTone, fontSize: '0.875em', overflowWrap: 'anywhere' }}>{r.source_title || (r.source === 'bible' ? 'KJV Bible' : 'William Branham Sermon')}</div>
-                              <div style={{ color: t.text2, fontSize: '0.8125em' }}>{r.source_date || (r.source === 'bible' ? 'KJV' : '')}</div>
+                      {searchSource === 'both' ? (
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12, alignItems: 'start' }}>
+                          <div>
+                            <div style={{ ...card(t), marginBottom: 10, padding: '10px 12px' }}>
+                              <span style={{ fontSize: 11, letterSpacing: '0.04em', textTransform: 'uppercase', color: t.text3, fontWeight: 700 }}>Message ({messageSearchResults.length})</span>
                             </div>
-                            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', minWidth: 0, justifyContent: 'flex-end' }}>
-                              {r.source === 'message' && (
-                                <button
-                                  type="button"
-                                  onClick={() => openSermonDrawer({ title: r.source_title, date: r.source_date, quote: (r.quote_text || '').trim() || lastSearchQuery })}
-                                  style={pillBtn(t)}
-                                >
-                                  Open sermon
-                                </button>
-                              )}
-                              <button type="button" onClick={() => copyText(r.quote_text, i)} style={pillBtn(t)}>{copied === i ? 'Copied' : 'Copy'}</button>
-                              <button type="button" onClick={() => { if (!user) return showToast('Sign in to save quotes'); setSaveModal({ text: r.quote_text, title: r.source_title, date: r.source_date }) }} style={pillBtn(t)}>Save</button>
+                            {messageSearchResults.map((r, i) => (
+                              <div key={`m-${i}`} style={{ ...card(t), marginBottom: 12, minWidth: 0, padding: 'clamp(14px, 2.3vw, 20px)' }}>
+                                <p style={{ margin: 0, borderLeft: `3px solid ${CTA}`, paddingLeft: 'clamp(12px, 1.8vw, 18px)', paddingRight: 'clamp(2px, 0.8vw, 8px)', lineHeight: 1.7, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
+                                  "{highlightMatches(r.quote_text, lastSearchQuery, searchMatchType)}"
+                                </p>
+                                <div style={{ marginTop: 12, display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', flexWrap: 'wrap', minWidth: 0 }}>
+                                  <div style={{ minWidth: 0, flex: '1 1 140px' }}>
+                                    <div style={{ fontWeight: 600, color: headingTone, fontSize: '0.875em', overflowWrap: 'anywhere' }}>{r.source_title || 'William Branham Sermon'}</div>
+                                    <div style={{ color: t.text2, fontSize: '0.8125em' }}>{r.source_date || ''}</div>
+                                  </div>
+                                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', minWidth: 0, justifyContent: 'flex-end' }}>
+                                    <button
+                                      type="button"
+                                      onClick={() => openSermonDrawer({ title: r.source_title, date: r.source_date, quote: (r.quote_text || '').trim() || lastSearchQuery })}
+                                      style={pillBtn(t)}
+                                    >
+                                      Open sermon
+                                    </button>
+                                    <button type="button" onClick={() => copyText(r.quote_text, i)} style={pillBtn(t)}>{copied === i ? 'Copied' : 'Copy'}</button>
+                                    <button type="button" onClick={() => { if (!user) return showToast('Sign in to save quotes'); setSaveModal({ text: r.quote_text, title: r.source_title, date: r.source_date }) }} style={pillBtn(t)}>Save</button>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                          <div>
+                            <div style={{ ...card(t), marginBottom: 10, padding: '10px 12px' }}>
+                              <span style={{ fontSize: 11, letterSpacing: '0.04em', textTransform: 'uppercase', color: t.text3, fontWeight: 700 }}>Bible ({bibleSearchResults.length})</span>
                             </div>
+                            {bibleSearchResults.map((r, i) => (
+                              <div key={`b-${i}`} style={{ ...card(t), marginBottom: 12, minWidth: 0, padding: 'clamp(14px, 2.3vw, 20px)' }}>
+                                <p style={{ margin: 0, borderLeft: `3px solid ${CTA}`, paddingLeft: 'clamp(12px, 1.8vw, 18px)', paddingRight: 'clamp(2px, 0.8vw, 8px)', lineHeight: 1.7, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
+                                  "{highlightMatches(r.quote_text, lastSearchQuery, searchMatchType)}"
+                                </p>
+                                <div style={{ marginTop: 12, display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', flexWrap: 'wrap', minWidth: 0 }}>
+                                  <div style={{ minWidth: 0, flex: '1 1 140px' }}>
+                                    <div style={{ fontWeight: 600, color: headingTone, fontSize: '0.875em', overflowWrap: 'anywhere' }}>{r.source_title || 'KJV Bible'}</div>
+                                    <div style={{ color: t.text2, fontSize: '0.8125em' }}>{r.source_date || 'KJV'}</div>
+                                  </div>
+                                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', minWidth: 0, justifyContent: 'flex-end' }}>
+                                    <button type="button" onClick={() => copyText(r.quote_text, i + 10000)} style={pillBtn(t)}>{copied === i + 10000 ? 'Copied' : 'Copy'}</button>
+                                    <button type="button" onClick={() => { if (!user) return showToast('Sign in to save quotes'); setSaveModal({ text: r.quote_text, title: r.source_title, date: r.source_date }) }} style={pillBtn(t)}>Save</button>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
                           </div>
                         </div>
-                      ))}
+                      ) : (
+                        sortedSearchResults.map((r, i) => (
+                          <div key={i} style={{ ...card(t), marginBottom: 12, minWidth: 0, padding: 'clamp(14px, 2.3vw, 20px)' }}>
+                            <p style={{ margin: 0, borderLeft: `3px solid ${CTA}`, paddingLeft: 'clamp(12px, 1.8vw, 18px)', paddingRight: 'clamp(2px, 0.8vw, 8px)', lineHeight: 1.7, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
+                              "{highlightMatches(r.quote_text, lastSearchQuery, searchMatchType)}"
+                            </p>
+                            <div style={{ marginTop: 12, display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', flexWrap: 'wrap', minWidth: 0 }}>
+                              <div style={{ minWidth: 0, flex: '1 1 140px' }}>
+                                <div style={{ fontWeight: 600, color: headingTone, fontSize: '0.875em', overflowWrap: 'anywhere' }}>{r.source_title || (r.source === 'bible' ? 'KJV Bible' : 'William Branham Sermon')}</div>
+                                <div style={{ color: t.text2, fontSize: '0.8125em' }}>{r.source_date || (r.source === 'bible' ? 'KJV' : '')}</div>
+                              </div>
+                              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', minWidth: 0, justifyContent: 'flex-end' }}>
+                                {r.source === 'message' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => openSermonDrawer({ title: r.source_title, date: r.source_date, quote: (r.quote_text || '').trim() || lastSearchQuery })}
+                                    style={pillBtn(t)}
+                                  >
+                                    Open sermon
+                                  </button>
+                                )}
+                                <button type="button" onClick={() => copyText(r.quote_text, i)} style={pillBtn(t)}>{copied === i ? 'Copied' : 'Copy'}</button>
+                                <button type="button" onClick={() => { if (!user) return showToast('Sign in to save quotes'); setSaveModal({ text: r.quote_text, title: r.source_title, date: r.source_date }) }} style={pillBtn(t)}>Save</button>
+                              </div>
+                            </div>
+                          </div>
+                        ))
+                      )}
                     </>
                   ) : (
                     <>
