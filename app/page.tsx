@@ -11,6 +11,7 @@ type SavedQuote = { id: string; quote_text: string; source_title: string; source
 type SearchResult = { quote_text: string; source_title: string; source_date: string; source: 'message' | 'bible' }
 type SearchSource = 'both' | 'message' | 'bible'
 type SearchMatchType = 'exact_phrase' | 'all_words'
+type SearchSortMode = 'relevance' | 'newest' | 'oldest'
 type SermonSort = 'newest' | 'oldest'
 type SermonDecade = 'all' | '1947-49' | '1950s' | '1960s'
 type AccentTheme = 'green' | 'blue' | 'amber'
@@ -83,6 +84,21 @@ function fmtSermonDate(dateStr?: string | null): string {
   return d.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })
 }
 
+function sermonParagraphsFromText(text?: string | null): string[] {
+  const raw = String(text || '').trim()
+  if (!raw) return []
+  const normalized = raw.replace(/\r/g, '\n')
+  const byBlankLine = normalized
+    .split(/\n{2,}/)
+    .map(p => p.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+  if (byBlankLine.length > 1) return byBlankLine
+  return normalized
+    .split('\n')
+    .map(p => p.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+}
+
 function HomeLanding({
   t,
   onPick,
@@ -141,6 +157,10 @@ function HomeLanding({
               textAlign: 'left',
               marginBottom: 0,
               padding: 14,
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'flex-start',
+              alignItems: 'flex-start',
               transition: 'transform 0.12s ease, box-shadow 0.12s ease',
             }}
           >
@@ -170,6 +190,7 @@ export default function Home() {
   const [mode, setMode] = useState<'chat' | 'search'>('chat')
   const [searchSource, setSearchSource] = useState<SearchSource>('both')
   const [searchMatchType, setSearchMatchType] = useState<SearchMatchType>('exact_phrase')
+  const [searchSortMode, setSearchSortMode] = useState<SearchSortMode>('relevance')
   const [query, setQuery] = useState('')
   const [lastSearchQuery, setLastSearchQuery] = useState('')
   const [messages, setMessages] = useState<Message[]>([])
@@ -482,6 +503,52 @@ export default function Home() {
     )
   }
 
+  const getResultYear = (dateStr: string): number | null => {
+    if (!dateStr) return null
+    const m = dateStr.match(/\b(18|19|20)\d{2}\b/)
+    if (m) return Number(m[0])
+    const d = new Date(dateStr)
+    return Number.isNaN(d.getTime()) ? null : d.getFullYear()
+  }
+
+  const getResultRelevanceScore = (r: SearchResult): number => {
+    const terms = getSearchHighlightTerms(lastSearchQuery, searchMatchType)
+    const hay = `${r.quote_text} ${r.source_title} ${r.source_date}`.toLowerCase()
+    const termHits = terms.reduce((n, t) => (hay.includes(t.toLowerCase()) ? n + 1 : n), 0)
+    const exactBoost = searchMatchType === 'exact_phrase' && terms[0] && r.quote_text.toLowerCase().includes(terms[0].toLowerCase()) ? 3 : 0
+    const sourceBoost = r.source === 'message' ? 0.2 : 0
+    return termHits + exactBoost + sourceBoost
+  }
+
+  const sortedSearchResults = useMemo(() => {
+    const rows = [...searchResults]
+    if (searchSortMode === 'newest') {
+      return rows.sort((a, b) => (getResultYear(b.source_date) || -1) - (getResultYear(a.source_date) || -1))
+    }
+    if (searchSortMode === 'oldest') {
+      return rows.sort((a, b) => (getResultYear(a.source_date) || 99999) - (getResultYear(b.source_date) || 99999))
+    }
+    return rows.sort((a, b) => getResultRelevanceScore(b) - getResultRelevanceScore(a))
+  }, [searchResults, searchSortMode, lastSearchQuery, searchMatchType])
+
+  const topRelevantTerms = useMemo(() => {
+    if (!searchResults.length) return [] as string[]
+    const queryTerms = new Set(getSearchHighlightTerms(lastSearchQuery, searchMatchType).map(t => t.toLowerCase()))
+    const stop = new Set(['the', 'and', 'for', 'with', 'that', 'this', 'from', 'what', 'when', 'where', 'about', 'into', 'have', 'were', 'will', 'shall', 'unto', 'your', 'you', 'his', 'her', 'their'])
+    const counts = new Map<string, number>()
+    for (const r of searchResults.slice(0, 40)) {
+      const words = `${r.quote_text} ${r.source_title}`.toLowerCase().split(/[^a-z0-9]+/g)
+      for (const w of words) {
+        if (!w || w.length < 4 || stop.has(w) || queryTerms.has(w)) continue
+        counts.set(w, (counts.get(w) || 0) + 1)
+      }
+    }
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8)
+      .map(([w]) => w)
+  }, [searchResults, lastSearchQuery, searchMatchType])
+
   const copyText = (text: string, i: number) => {
     navigator.clipboard.writeText(text)
     setCopied(i)
@@ -727,6 +794,7 @@ export default function Home() {
       return tb - ta
     })
   }, [folders])
+  const sermonParagraphs = useMemo(() => sermonParagraphsFromText(currentSermon?.full_text), [currentSermon?.full_text])
 
   if (authMode) {
     return (
@@ -1013,7 +1081,51 @@ export default function Home() {
                         </div>
                       )}
                       {showInlineComposer && renderComposer(true)}
-                      {searchResults.map((r, i) => (
+                      {searchResults.length > 0 && (
+                        <div style={{ ...card(t), marginBottom: 12 }}>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', justifyContent: 'space-between' }}>
+                            <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                              <span style={{ fontSize: 11, letterSpacing: '0.04em', textTransform: 'uppercase', color: t.text3, fontWeight: 700 }}>Sort</span>
+                              {([
+                                { id: 'relevance', label: 'Relevance' },
+                                { id: 'newest', label: 'Newest year' },
+                                { id: 'oldest', label: 'Oldest year' },
+                              ] as const).map(opt => (
+                                <button
+                                  key={opt.id}
+                                  type="button"
+                                  onClick={() => setSearchSortMode(opt.id)}
+                                  style={{
+                                    ...pillBtn(t),
+                                    background: searchSortMode === opt.id ? `${accent.cta}26` : 'transparent',
+                                    borderColor: searchSortMode === opt.id ? `${accent.cta}80` : t.border,
+                                    color: searchSortMode === opt.id ? (darkMode ? accent.soft : '#1f2937') : t.text2,
+                                    fontWeight: searchSortMode === opt.id ? 700 : 600,
+                                  }}
+                                >
+                                  {opt.label}
+                                </button>
+                              ))}
+                            </div>
+                            {topRelevantTerms.length > 0 && (
+                              <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                                <span style={{ fontSize: 11, letterSpacing: '0.04em', textTransform: 'uppercase', color: t.text3, fontWeight: 700 }}>Top terms</span>
+                                {topRelevantTerms.map(term => (
+                                  <button
+                                    key={term}
+                                    type="button"
+                                    onClick={() => { setQuery(term); setTimeout(() => taRef.current?.focus(), 0) }}
+                                    style={pillBtn(t)}
+                                  >
+                                    {term}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                      {sortedSearchResults.map((r, i) => (
                         <div key={i} style={{ ...card(t), marginBottom: 12, minWidth: 0, padding: 'clamp(14px, 2.3vw, 20px)' }}>
                           <p style={{ margin: 0, borderLeft: `3px solid ${CTA}`, paddingLeft: 'clamp(12px, 1.8vw, 18px)', paddingRight: 'clamp(2px, 0.8vw, 8px)', lineHeight: 1.7, fontStyle: 'italic', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
                             "{highlightMatches(r.quote_text, lastSearchQuery, searchMatchType)}"
@@ -1195,9 +1307,16 @@ export default function Home() {
                   {fmtSermonDate(currentSermon?.date)}{currentSermon?.location ? ` · ${currentSermon.location}` : ''}{currentSermon?.reference_code ? ` · #${currentSermon.reference_code}` : ''}
                 </p>
                 <div style={{ ...card(t), maxHeight: 'calc(100vh - 300px)', overflowY: 'auto', fontFamily: 'var(--font-merriweather), Georgia, serif', lineHeight: 1.9 }}>
-                  <p style={{ margin: 0, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
-                    {currentSermon?.full_text || 'No sermon text available.'}
-                  </p>
+                  {sermonParagraphs.length === 0 ? (
+                    <p style={{ margin: 0, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>No sermon text available.</p>
+                  ) : (
+                    sermonParagraphs.map((para, idx) => (
+                      <p key={idx} style={{ margin: idx === 0 ? '0 0 12px' : '0 0 12px', overflowWrap: 'anywhere' }}>
+                        <strong style={{ marginRight: 6 }}>{idx + 1}.</strong>
+                        {para}
+                      </p>
+                    ))
+                  )}
                 </div>
                 <button
                   type="button"
