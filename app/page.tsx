@@ -28,6 +28,7 @@ type View = 'chat' | 'sermons' | 'reader' | 'bookmarks' | 'bible' | 'settings'
 type HistoryItem = { id: string; text: string; mode: 'chat' | 'search' }
 type SermonDrawerState = {
   open: boolean
+  collapsed: boolean
   loading: boolean
   error: string
   sermon: SermonItem | null
@@ -101,10 +102,17 @@ function sermonParagraphsFromText(text?: string | null): string[] {
     .map(p => p.replace(/\s+/g, ' ').trim())
     .filter(Boolean)
   if (byBlankLine.length > 1) return byBlankLine
-  return normalized
+  const byLine = normalized
     .split('\n')
     .map(p => p.replace(/\s+/g, ' ').trim())
     .filter(Boolean)
+  if (byLine.length > 1) return byLine
+  const oneBlock = byLine[0] || raw
+  const sentences = oneBlock.split(/(?<=[.!?])\s+/).map(s => s.trim()).filter(Boolean)
+  if (sentences.length <= 3) return [oneBlock]
+  const chunked: string[] = []
+  for (let i = 0; i < sentences.length; i += 3) chunked.push(sentences.slice(i, i + 3).join(' '))
+  return chunked
 }
 
 function HomeLanding({
@@ -224,6 +232,7 @@ export default function Home() {
   const [currentSermon, setCurrentSermon] = useState<SermonItem | null>(null)
   const [sermonDrawer, setSermonDrawer] = useState<SermonDrawerState>({
     open: false,
+    collapsed: false,
     loading: false,
     error: '',
     sermon: null,
@@ -250,6 +259,8 @@ export default function Home() {
   const taRef = useRef<HTMLTextAreaElement>(null)
   const endRef = useRef<HTMLDivElement>(null)
   const scrollAreaRef = useRef<HTMLDivElement>(null)
+  const sermonDrawerScrollRef = useRef<HTMLDivElement>(null)
+  const sermonDrawerHitRef = useRef<HTMLParagraphElement>(null)
   const accent = ACCENT_THEMES[accentTheme]
   const t = darkMode ? ui.dark : ui.light
   const headingTone = darkMode ? accent.soft : '#27272A'
@@ -599,6 +610,7 @@ export default function Home() {
   const openSermonDrawer = async (opts: { title?: string; date?: string; ref?: string; quote?: string }) => {
     setSermonDrawer({
       open: true,
+      collapsed: false,
       loading: true,
       error: '',
       sermon: null,
@@ -858,6 +870,11 @@ export default function Home() {
   }, [folders])
   const sermonParagraphs = useMemo(() => sermonParagraphsFromText(currentSermon?.full_text), [currentSermon?.full_text])
   const sermonDrawerParagraphs = useMemo(() => sermonParagraphsFromText(sermonDrawer.sermon?.full_text), [sermonDrawer.sermon?.full_text])
+  const sermonDrawerHitIndex = useMemo(() => {
+    const needle = (sermonDrawer.highlightQuote || '').replace(/\s+/g, ' ').trim().toLowerCase()
+    if (!needle || needle.length < 6) return -1
+    return sermonDrawerParagraphs.findIndex(p => p.toLowerCase().includes(needle))
+  }, [sermonDrawerParagraphs, sermonDrawer.highlightQuote])
   const highlightInText = (text: string, rawNeedle: string) => {
     const needle = (rawNeedle || '').replace(/\s+/g, ' ').trim()
     if (!needle || needle.length < 6) return text
@@ -875,6 +892,15 @@ export default function Home() {
       </>
     )
   }
+
+  useEffect(() => {
+    if (!sermonDrawer.open || sermonDrawer.collapsed || sermonDrawer.loading) return
+    if (sermonDrawerHitRef.current) {
+      sermonDrawerHitRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    } else if (sermonDrawerScrollRef.current) {
+      sermonDrawerScrollRef.current.scrollTo({ top: 0, behavior: 'smooth' })
+    }
+  }, [sermonDrawer.open, sermonDrawer.collapsed, sermonDrawer.loading, sermonDrawer.sermon?.id, sermonDrawerHitIndex])
 
   if (authMode) {
     return (
@@ -1631,51 +1657,69 @@ export default function Home() {
                   top: 0,
                   right: 0,
                   height: '100%',
-                  width: 'min(560px, 92vw)',
+                  width: sermonDrawer.collapsed ? 56 : 'min(560px, 92vw)',
                   background: t.bg2,
                   borderLeft: `1px solid ${t.border}`,
                   boxShadow: '-8px 0 24px rgba(0,0,0,0.18)',
                   display: 'flex',
                   flexDirection: 'column',
                   pointerEvents: 'auto',
+                  transition: 'width 0.18s ease',
                 }}
               >
-                <div style={{ padding: '12px 14px', borderBottom: `1px solid ${t.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: '1em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {sermonDrawer.sermon?.title || sermonDrawer.sourceLabel || 'Sermon'}
+                <div style={{ padding: sermonDrawer.collapsed ? '10px 8px' : '12px 14px', borderBottom: `1px solid ${t.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                  {!sermonDrawer.collapsed && (
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, fontSize: '1em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {sermonDrawer.sermon?.title || sermonDrawer.sourceLabel || 'Sermon'}
+                      </div>
+                      <div style={{ color: t.text2, fontSize: 12 }}>
+                        {sermonDrawer.sermon?.date ? fmtSermonDate(sermonDrawer.sermon.date) : ''}
+                        {sermonDrawer.sermon?.reference_code ? ` · #${sermonDrawer.sermon.reference_code}` : ''}
+                      </div>
                     </div>
-                    <div style={{ color: t.text2, fontSize: 12 }}>
-                      {sermonDrawer.sermon?.date ? fmtSermonDate(sermonDrawer.sermon.date) : ''}
-                      {sermonDrawer.sermon?.reference_code ? ` · #${sermonDrawer.sermon.reference_code}` : ''}
-                    </div>
+                  )}
+                  <div style={{ display: 'flex', gap: 6, marginLeft: sermonDrawer.collapsed ? 'auto' : 0 }}>
+                    <button
+                      type="button"
+                      onClick={() => setSermonDrawer(prev => ({ ...prev, collapsed: !prev.collapsed }))}
+                      style={iconBtn(t)}
+                      aria-label={sermonDrawer.collapsed ? 'Expand sermon panel' : 'Collapse sermon panel'}
+                    >
+                      {sermonDrawer.collapsed ? '⟨' : '⟩'}
+                    </button>
+                    {!sermonDrawer.collapsed && (
+                      <button type="button" onClick={() => setSermonDrawer(prev => ({ ...prev, open: false }))} style={iconBtn(t)} aria-label="Close sermon panel">✕</button>
+                    )}
                   </div>
-                  <button type="button" onClick={() => setSermonDrawer(prev => ({ ...prev, open: false }))} style={iconBtn(t)} aria-label="Close sermon panel">✕</button>
                 </div>
-                <div style={{ padding: 12, borderBottom: `1px solid ${t.border}`, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!sermonDrawer.sermon) return
-                      setCurrentSermon(sermonDrawer.sermon)
-                      setView('reader')
-                    }}
-                    style={secondaryBtn(t)}
-                  >
-                    Open in Sermon Library
-                  </button>
-                  <button type="button" onClick={() => setSermonDrawer(prev => ({ ...prev, open: false }))} style={pillBtn(t)}>Stay here</button>
-                </div>
-                <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 14, fontFamily: 'var(--font-merriweather), Georgia, serif', lineHeight: 1.85 }}>
+                {!sermonDrawer.collapsed && (
+                  <div style={{ padding: 12, borderBottom: `1px solid ${t.border}`, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!sermonDrawer.sermon) return
+                        setCurrentSermon(sermonDrawer.sermon)
+                        setView('reader')
+                      }}
+                      style={secondaryBtn(t)}
+                    >
+                      Open in Sermon Library
+                    </button>
+                  </div>
+                )}
+                {!sermonDrawer.collapsed && (
+                  <div ref={sermonDrawerScrollRef} style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 14, fontFamily: 'var(--font-merriweather), Georgia, serif', lineHeight: 1.85 }}>
                   {sermonDrawer.loading && <p style={{ color: t.text2 }}>Loading sermon...</p>}
                   {!sermonDrawer.loading && sermonDrawer.error && <p style={{ color: t.text2 }}>{sermonDrawer.error}</p>}
                   {!sermonDrawer.loading && !sermonDrawer.error && sermonDrawerParagraphs.map((para, idx) => (
-                    <p key={idx} style={{ margin: '0 0 12px', overflowWrap: 'anywhere' }}>
+                    <p key={idx} ref={idx === sermonDrawerHitIndex ? sermonDrawerHitRef : null} style={{ margin: '0 0 12px', overflowWrap: 'anywhere' }}>
                       <strong style={{ marginRight: 6 }}>{idx + 1}.</strong>
                       {highlightInText(para, sermonDrawer.highlightQuote)}
                     </p>
                   ))}
-                </div>
+                  </div>
+                )}
               </aside>
             </div>
           )}
