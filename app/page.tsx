@@ -156,6 +156,7 @@ export default function Home() {
   const [mode, setMode] = useState<'chat' | 'search'>('chat')
   const [searchSource, setSearchSource] = useState<SearchSource>('both')
   const [query, setQuery] = useState('')
+  const [lastSearchQuery, setLastSearchQuery] = useState('')
   const [messages, setMessages] = useState<Message[]>([])
   const [searchResults, setSearchResults] = useState<SearchResult[]>([])
   const [history, setHistory] = useState<HistoryItem[]>([])
@@ -327,6 +328,26 @@ export default function Home() {
     return content.replace(/\s+/g, ' ').trim().slice(0, 200)
   }
 
+  const getSearchHighlightTerms = (raw: string): string[] => {
+    const q = raw.trim()
+    if (!q) return []
+    const exactPhrases = [...q.matchAll(/"([^"]+)"/g)].map(m => m[1].trim()).filter(Boolean)
+    if (exactPhrases.length) return [...new Set(exactPhrases)]
+    return [...new Set(q.split(/\s+/).map(s => s.trim()).filter(s => s.length >= 2))]
+  }
+
+  const highlightMatches = (text: string, rawQuery: string) => {
+    const terms = getSearchHighlightTerms(rawQuery)
+    if (!terms.length || !text) return [text]
+    const escaped = terms.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    const re = new RegExp(`(${escaped.join('|')})`, 'ig')
+    return text.split(re).map((part, idx) =>
+      idx % 2 === 1
+        ? <mark key={`hl-${idx}`} style={{ background: '#A0EEC0', color: '#1F2937', padding: '0 2px', borderRadius: 3 }}>{part}</mark>
+        : part
+    )
+  }
+
   const copyText = (text: string, i: number) => {
     navigator.clipboard.writeText(text)
     setCopied(i)
@@ -341,6 +362,7 @@ export default function Home() {
 
     if (mode === 'search') {
       setSearchResults([])
+      setLastSearchQuery(q)
       setHistory(prev => [{ id: `${Date.now()}`, text: q, mode: 'search' as const }, ...prev].slice(0, 20))
       try {
         const res = await fetch('/api/search', {
@@ -623,7 +645,9 @@ export default function Home() {
                       )}
                       {searchResults.map((r, i) => (
                         <div key={i} style={{ ...card(t), overflow: 'hidden', minWidth: 0 }}>
-                          <p style={{ margin: 0, borderLeft: `3px solid ${CTA}`, paddingLeft: 12, fontStyle: 'italic', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>"{r.quote_text}"</p>
+                          <p style={{ margin: 0, borderLeft: `3px solid ${CTA}`, paddingLeft: 12, fontStyle: 'italic', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
+                            "{highlightMatches(r.quote_text, lastSearchQuery)}"
+                          </p>
                           <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', flexWrap: 'wrap', minWidth: 0 }}>
                             <div style={{ minWidth: 0, flex: '1 1 140px' }}>
                               <div style={{ fontWeight: 600, color: headingTone, fontSize: '0.875em', overflowWrap: 'anywhere' }}>{r.source_title || (r.source === 'bible' ? 'KJV Bible' : 'William Branham Sermon')}</div>
