@@ -5,8 +5,8 @@ import ReactMarkdown from 'react-markdown'
 import { supabase } from '@/lib/supabase'
 import BibleReader from '@/components/BibleReader'
 
-type ExactPassage = { idx?: number; text: string; title: string; date?: string; source?: 'message' | 'bible'; ref?: string }
-type Message = { role: 'user' | 'assistant'; content: string; commentary?: string; exact_passages?: ExactPassage[]; sources?: any[] }
+type ExactPassage = { idx?: number; text: string; title: string; date?: string; source?: 'message' | 'bible'; ref?: string; reference_code?: string }
+type Message = { role: 'user' | 'assistant'; content: string; commentary?: string; exact_passages?: ExactPassage[]; passages?: ExactPassage[]; sources?: any[] }
 type Folder = { id: string; name: string; color: string; created_at?: string }
 type SavedQuote = { id: string; quote_text: string; source_title: string; source_date: string; folder_id: string | null }
 type SearchResult = { quote_text: string; source_title: string; source_date: string; source: 'message' | 'bible'; relevance_score?: number }
@@ -785,7 +785,10 @@ export default function Home() {
         role: 'assistant',
         content,
         commentary: content,
-        exact_passages: Array.isArray(data?.exact_passages) ? data.exact_passages : [],
+        exact_passages: Array.isArray(data?.passages)
+          ? data.passages
+          : (Array.isArray(data?.exact_passages) ? data.exact_passages : []),
+        passages: Array.isArray(data?.passages) ? data.passages : [],
         sources: Array.isArray(data?.sources) ? data.sources : [],
       }])
     } catch (error: any) {
@@ -1409,7 +1412,7 @@ export default function Home() {
                               </div>
                               <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
                                 <ReactMarkdown components={{
-                                  p: ({ children }) => <p style={{ margin: '0 0 14px', lineHeight: 1.78, fontWeight: 430, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{children}</p>,
+                                  p: ({ children }) => <p style={{ margin: '0 0 12px', lineHeight: 1.72, fontWeight: 430, color: t.text2, fontSize: '0.93em', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{children}</p>,
                                   h2: ({ children }) => <h2 style={{ ...h2, marginTop: 18, marginBottom: 12 }}>{children}</h2>,
                                   h3: ({ children }) => <h3 style={{ ...h2, fontSize: '1.05em', marginTop: 16, marginBottom: 10 }}>{children}</h3>,
                                 }}>{m.commentary || m.content || ''}</ReactMarkdown>
@@ -1419,7 +1422,10 @@ export default function Home() {
                                     {m.exact_passages.map((p, pIdx) => (
                                       <div key={`${p.title}-${p.date}-${pIdx}`} style={{ ...card(t), marginBottom: 0, padding: '10px 12px' }}>
                                         <div style={{ fontSize: 12, color: t.text2, marginBottom: 6 }}>
-                                          Exact quote from {p.title || (p.source === 'bible' ? 'KJV Bible' : 'William Branham Sermon')}{p.date ? ` (${p.date})` : ''}{p.ref ? ` [#${p.ref}]` : ''}:
+                                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                                            <span style={{ width: 14, height: 14, borderRadius: 999, background: `${accent.cta}22`, border: `1px solid ${accent.cta}55`, display: 'inline-grid', placeItems: 'center', fontSize: 10, color: darkMode ? accent.soft : '#1f5136' }}>✓</span>
+                                            <span>Exact quote — {p.title || (p.source === 'bible' ? 'KJV Bible' : 'William Branham Sermon')} · {p.date || ''}{(p.ref || p.reference_code) ? ` · #${p.ref || p.reference_code}` : ''}</span>
+                                          </span>
                                         </div>
                                         <blockquote style={{ margin: 0, borderLeft: `3px solid ${CTA}`, paddingLeft: 12, lineHeight: 1.8, fontWeight: 440, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
                                           {p.text}
