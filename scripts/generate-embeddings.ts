@@ -21,18 +21,49 @@ const openai = new OpenAI({ apiKey: openaiApiKey })
 
 type Row = { id: string | number; text: string | null }
 
+async function getResumeId(table: 'sermon_chunks' | 'bible_verses'): Promise<number | null> {
+  const { data, error } = await supabase
+    .from(table)
+    .select('id')
+    .not('embedding', 'is', null)
+    .order('id', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (error) {
+    throw new Error(`${table} resume check failed: ${error.message}`)
+  }
+
+  if (!data?.id) return null
+  const id = Number(data.id)
+  return Number.isFinite(id) ? id : null
+}
+
 async function processTable(table: 'sermon_chunks' | 'bible_verses') {
   let totalProcessed = 0
   let batchNumber = 0
 
+  const resumeId = await getResumeId(table)
   console.log(`\nStarting embeddings for ${table}...`)
+  console.log(
+    resumeId == null
+      ? `${table}: no existing embeddings found, starting from the beginning`
+      : `${table}: resuming after embedded id ${resumeId}`
+  )
 
   while (true) {
-    const { data, error } = await supabase
+    let query = supabase
       .from(table)
       .select('id,text')
       .is('embedding', null)
+      .order('id', { ascending: true })
       .limit(BATCH_SIZE)
+
+    if (resumeId != null) {
+      query = query.gt('id', resumeId)
+    }
+
+    const { data, error } = await query
 
     if (error) {
       throw new Error(`${table} fetch failed: ${error.message}`)
