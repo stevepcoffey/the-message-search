@@ -95,7 +95,9 @@ const SERMON_PAGE_SIZE = 50
 
 function fmtSermonDate(dateStr?: string | null): string {
   if (!dateStr) return 'Unknown date'
-  const d = new Date(dateStr)
+  const iso = String(dateStr).trim()
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  const d = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(iso)
   if (Number.isNaN(d.getTime())) return dateStr
   return d.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })
 }
@@ -137,26 +139,54 @@ function normalizeForMatch(s: string): string {
 }
 
 function findBestParagraphIndex(paragraphs: string[], quote: string): number {
-  const qNorm = normalizeForMatch(quote)
+  const qNorm = normalizeForMatch((quote || '').replace(/^"+|"+$/g, ''))
   if (!qNorm || paragraphs.length === 0) return -1
   const qTokens = [...new Set(qNorm.split(' ').filter(w => w.length >= 4 && !MATCH_STOP_WORDS.has(w)))]
   if (!qTokens.length) return -1
+
+  // Pull distinctive phrase fragments from the clicked quote; these are much better anchors
+  // than using only single-word overlaps on long excerpts.
+  const phraseCandidates = qNorm
+    .split(/\s{2,}|(?:\.\s*){2,}|(?<=\b(?:and|then|because|while)\b)\s+/)
+    .map(s => s.trim())
+    .filter(s => s.length >= 28)
+    .sort((a, b) => b.length - a.length)
+    .slice(0, 6)
+
+  const tokenWeight = (t: string) => (t.length >= 8 ? 2.2 : t.length >= 6 ? 1.6 : 1)
   let bestIdx = -1
   let bestScore = 0
   for (let i = 0; i < paragraphs.length; i++) {
     const pNorm = normalizeForMatch(paragraphs[i])
     let score = 0
-    for (const t of qTokens) {
-      if (pNorm.includes(t)) score += 1
+    for (const phrase of phraseCandidates) {
+      if (pNorm.includes(phrase)) {
+        score += 70 + Math.min(25, Math.floor(phrase.length / 8))
+      } else {
+        // Probe long phrase windows to survive clipped quotes and ellipsis.
+        const words = phrase.split(' ').filter(Boolean)
+        if (words.length >= 8) {
+          for (let w = 0; w <= words.length - 8; w += 3) {
+            const probe = words.slice(w, w + 8).join(' ')
+            if (probe.length >= 30 && pNorm.includes(probe)) {
+              score += 24
+              break
+            }
+          }
+        }
+      }
     }
-    const phraseProbe = qNorm.slice(0, Math.min(80, qNorm.length))
-    if (phraseProbe.length >= 12 && pNorm.includes(phraseProbe)) score += 3
+    for (const t of qTokens) {
+      if (pNorm.includes(t)) score += tokenWeight(t)
+    }
+    const phraseProbe = qNorm.slice(0, Math.min(90, qNorm.length))
+    if (phraseProbe.length >= 16 && pNorm.includes(phraseProbe)) score += 10
     if (score > bestScore) {
       bestScore = score
       bestIdx = i
     }
   }
-  return bestScore > 0 ? bestIdx : -1
+  return bestScore >= 6 ? bestIdx : -1
 }
 
 function HomeLanding({
