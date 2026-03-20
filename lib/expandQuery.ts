@@ -6,10 +6,13 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 const THEOLOGY_EXPANSIONS: Record<string, string[]> = {
   faith: ['belief', 'trust', 'substance', 'assurance'],
   grace: ['favor', 'mercy', 'unmerited favor'],
+  trinity: ['godhead', 'Jesus name', 'Father Son Holy Ghost', 'oneness'],
   obedience: ['submit', 'yield', 'keep commandments'],
   healing: ['divine healing', 'restoration', 'deliverance'],
   'new birth': ['born again', 'regeneration', 'spiritual birth'],
+  'holy spirit': ['Holy Ghost', 'baptism Spirit', 'Spirit of God'],
   'holy ghost': ['holy spirit', 'spirit baptism', 'anointing'],
+  'seven church ages': ['Ephesus', 'Laodicea', 'Revelation church'],
   baptism: ['water baptism', 'name of jesus christ', 'immersion'],
   love: ['charity', 'brotherly kindness', 'agape'],
   fear: ['reverence', 'anxiety', 'perfect love casteth out fear'],

@@ -11,6 +11,7 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
 type HybridRow = {
   source: 'message' | 'bible'
+  sermon_id?: string
   text: string
   title: string
   date: string
@@ -75,50 +76,53 @@ function getAnthropicText(content: any): string {
 }
 
 function buildLocalFallbackAnswer(query: string, rows: HybridRow[]): string {
-  if (!rows.length) {
-    return `I could not find enough matching material in the current library for "${query}" yet. Try a more exact sermon title, reference code, or a shorter phrase from the quote.`
+  if (!rows.length) return 'I need more specific information to answer this accurately.'
+  return 'I need more specific information to answer this accurately.'
+}
+
+function enforceSourceDiversity(rows: HybridRow[], maxPerSermon = 2, maxTotal = 20): HybridRow[] {
+  const out: HybridRow[] = []
+  const sermonCounts = new Map<string, number>()
+  for (const row of rows) {
+    if (out.length >= maxTotal) break
+    if (row.source === 'message') {
+      const key = row.sermon_id || row.ref || `${row.title}|${row.date}`
+      const used = sermonCounts.get(key) || 0
+      if (used >= maxPerSermon) continue
+      sermonCounts.set(key, used + 1)
+    }
+    out.push(row)
   }
-  const top = rows.slice(0, 3)
-  const intro = `Here are the most relevant matches I found for "${query}":`
-  const bullets = top.map((r, i) => {
-    const source = `${r.title}${r.date ? ` (${r.date})` : ''}${r.ref ? ` #${r.ref}` : ''}`
-    const excerpt = r.text.replace(/\s+/g, ' ').trim().slice(0, 260)
-    return `${i + 1}. ${source}\n> ${excerpt}${r.text.length > 260 ? '...' : ''}`
-  }).join('\n\n')
-  return `${intro}\n\n${bullets}\n\nTry narrowing your question to a specific sermon, quote phrase, or scripture.`
+  return out
 }
 
 async function keywordFallbackRows(query: string): Promise<HybridRow[]> {
   const q = query.trim()
   if (!q) return []
-  const normalized = q.toLowerCase()
-  const aliasTerms: string[] = []
-  if (normalized.includes('holy spirit')) aliasTerms.push('holy ghost')
-  if (normalized.includes('holy ghost')) aliasTerms.push('holy spirit')
-  if (normalized.includes('spirit of god')) aliasTerms.push('holy spirit', 'holy ghost')
   const tokens = Array.from(
     new Set(
-      `${q} ${aliasTerms.join(' ')}`
+      q
         .toLowerCase()
         .split(/\s+/)
         .map(t => t.replace(/[^a-z0-9]/gi, '').trim())
-        .filter(t => t.length >= 3)
+        .filter(t => t.length >= 3 && !['what', 'about', 'with', 'from', 'that', 'this', 'have', 'will', 'your', 'they', 'them'].includes(t))
     )
-  ).slice(0, 6)
-  const ilikeParts = [q, ...aliasTerms, ...tokens].filter(Boolean).map(t => `text.ilike.%${t}%`)
-  const orClause = ilikeParts.join(',')
+  ).slice(0, 10)
+  const keywordSet = new Set([q.toLowerCase(), ...tokens])
+  const orClause = tokens.map(t => `text.ilike.%${t}%`).join(',')
 
-  let sermonQuery = supabaseServer
+  let sermonQuery: any = supabaseServer
     .from('sermon_chunks')
-    .select('text, sermons(title, date, reference_code)')
-    .limit(40)
+    .select('sermon_id,text, sermons(title, date, reference_code)')
+    .order('sermon_id', { ascending: false })
+    .limit(120)
   if (orClause) sermonQuery = sermonQuery.or(orClause)
   const { data: sermonMatches } = await sermonQuery
 
-  let bibleQuery = supabaseServer
+  let bibleQuery: any = supabaseServer
     .from('bible_verses')
     .select('book,chapter,verse,text')
-    .limit(25)
+    .limit(80)
   if (orClause) bibleQuery = bibleQuery.or(orClause)
   const { data: bibleMatches } = await bibleQuery
 
@@ -126,11 +130,12 @@ async function keywordFallbackRows(query: string): Promise<HybridRow[]> {
   for (const row of sermonMatches || []) {
     const text = toAscii(row?.text || '')
     const lower = text.toLowerCase()
-    const matchCount = tokens.reduce((n, t) => (lower.includes(t) ? n + 1 : n), 0)
-    if (!lower.includes(q.toLowerCase()) && matchCount === 0) continue
+    const matchCount = [...keywordSet].reduce((n, t) => (lower.includes(t) ? n + 1 : n), 0)
+    if (matchCount === 0) continue
     const sermonMeta = Array.isArray(row?.sermons) ? row?.sermons?.[0] : row?.sermons
     out.push({
       source: 'message',
+      sermon_id: row?.sermon_id || undefined,
       text,
       title: toAscii(sermonMeta?.title || 'William Branham Sermon'),
       date: sermonMeta?.date || '',
@@ -145,8 +150,8 @@ async function keywordFallbackRows(query: string): Promise<HybridRow[]> {
   for (const row of bibleMatches || []) {
     const text = toAscii(row?.text || '')
     const lower = text.toLowerCase()
-    const matchCount = tokens.reduce((n, t) => (lower.includes(t) ? n + 1 : n), 0)
-    if (!lower.includes(q.toLowerCase()) && matchCount === 0) continue
+    const matchCount = [...keywordSet].reduce((n, t) => (lower.includes(t) ? n + 1 : n), 0)
+    if (matchCount === 0) continue
     out.push({
       source: 'bible',
       text,
@@ -159,7 +164,7 @@ async function keywordFallbackRows(query: string): Promise<HybridRow[]> {
     })
     if (out.length >= 20) break
   }
-  return out.slice(0, 20)
+  return enforceSourceDiversity(out, 2, 20)
 }
 
 function extractReferenceCode(query: string): string | null {
@@ -257,6 +262,7 @@ export async function POST(request: NextRequest) {
       if (!chunkError && (chunkRows || []).length > 0) {
         ranked = (chunkRows || []).map((row: any) => ({
           source: 'message',
+          sermon_id: specificSermon.id,
           text: toAscii(row.text || ''),
           title: toAscii(specificSermon.title || 'William Branham Sermon'),
           date: specificSermon.date || '',
@@ -297,6 +303,7 @@ export async function POST(request: NextRequest) {
 
         ranked = ((hybridResults || []) as any[]).map((row: any) => ({
           source: row.source === 'bible' ? 'bible' : 'message',
+          sermon_id: row.sermon_id || undefined,
           text: toAscii(row.text || ''),
           title: toAscii(row.title || (row.source === 'bible' ? 'KJV Bible' : 'William Branham Sermon')),
           date: row.date || '',
@@ -317,10 +324,12 @@ export async function POST(request: NextRequest) {
         ranked = await keywordFallbackRows(query)
       }
     }
+    ranked = enforceSourceDiversity(ranked, 2, 20)
     retrievalMs = Date.now() - startedAt
 
     let reranked = usedSpecificSermon ? ranked.slice(0, 20) : await rerankWithClaude(query, ranked)
     if (!reranked.length && ranked.length) reranked = ranked.slice(0, 8)
+    reranked = enforceSourceDiversity(reranked, 2, 8)
     rerankMs = Date.now() - startedAt - retrievalMs
 
     const passages = reranked.map((r, idx) =>
@@ -333,7 +342,7 @@ Use only the context items below. Do not invent quotes, sermons, or scripture te
 Never say "the passages provided".
 Never recommend external sources, websites, books, apps, or ministries.
 Do not tell the user to search elsewhere.
-If matches are limited, still answer from available context and ask for a narrower in-app query.
+Never suggest alternative search terms.
 
 Write the response in this exact structure:
 1) Opening summary paragraph (natural, direct)
@@ -341,7 +350,8 @@ Write the response in this exact structure:
    - Include multiple markdown blockquotes (every quoted line starts with >)
    - After each quote, include source line: — Sermon Title (Date) [#Reference]
 3) ## Key Scriptures
-   - List KJV verses verbatim with references
+   - Always include at least 2-3 KJV scripture references relevant to the topic
+   - You may include relevant KJV references from biblical knowledge even if not present in context
 4) Brief synthesis paragraph at the end
 
 Context:
