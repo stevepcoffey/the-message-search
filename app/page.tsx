@@ -26,6 +26,14 @@ type SermonItem = {
 }
 type View = 'chat' | 'sermons' | 'reader' | 'bookmarks' | 'bible' | 'settings'
 type HistoryItem = { id: string; text: string; mode: 'chat' | 'search' }
+type SermonDrawerState = {
+  open: boolean
+  loading: boolean
+  error: string
+  sermon: SermonItem | null
+  highlightQuote: string
+  sourceLabel: string
+}
 
 /** Primary actions / filled buttons */
 const CTA = 'var(--accent-color)'
@@ -214,6 +222,14 @@ export default function Home() {
   const [toast, setToast] = useState('')
 
   const [currentSermon, setCurrentSermon] = useState<SermonItem | null>(null)
+  const [sermonDrawer, setSermonDrawer] = useState<SermonDrawerState>({
+    open: false,
+    loading: false,
+    error: '',
+    sermon: null,
+    highlightQuote: '',
+    sourceLabel: '',
+  })
   const [sermonSearch, setSermonSearch] = useState('')
   const [sermonSort, setSermonSort] = useState<SermonSort>('newest')
   const [sermonDecade, setSermonDecade] = useState<SermonDecade>('all')
@@ -555,6 +571,52 @@ export default function Home() {
     setTimeout(() => setCopied(null), 1500)
   }
 
+  const getSermonQueryId = async (opts: { title?: string; date?: string; ref?: string }): Promise<SermonItem | null> => {
+    const ref = (opts.ref || '').replace(/^#/, '').trim()
+    if (ref) {
+      const { data } = await supabase
+        .from('sermons')
+        .select('id,title,date,location,reference_code,full_text,word_count')
+        .ilike('reference_code', `%${ref}%`)
+        .limit(1)
+        .maybeSingle()
+      if (data) return data as SermonItem
+    }
+    const title = (opts.title || '').trim()
+    if (!title) return null
+    let q: any = supabase
+      .from('sermons')
+      .select('id,title,date,location,reference_code,full_text,word_count')
+      .ilike('title', `%${title}%`)
+      .limit(5)
+    if (opts.date) q = q.eq('date', opts.date)
+    const { data } = await q
+    const rows = (data || []) as SermonItem[]
+    if (!rows.length) return null
+    return rows[0]
+  }
+
+  const openSermonDrawer = async (opts: { title?: string; date?: string; ref?: string; quote?: string }) => {
+    setSermonDrawer({
+      open: true,
+      loading: true,
+      error: '',
+      sermon: null,
+      highlightQuote: (opts.quote || '').trim(),
+      sourceLabel: `${opts.title || 'Sermon'}${opts.ref ? ` #${opts.ref}` : ''}`.trim(),
+    })
+    try {
+      const sermon = await getSermonQueryId(opts)
+      if (!sermon) {
+        setSermonDrawer(prev => ({ ...prev, loading: false, error: 'Could not find that sermon record.' }))
+        return
+      }
+      setSermonDrawer(prev => ({ ...prev, loading: false, sermon, error: '' }))
+    } catch (e: any) {
+      setSermonDrawer(prev => ({ ...prev, loading: false, error: e?.message || 'Failed to open sermon' }))
+    }
+  }
+
   const send = async () => {
     if (!query.trim() || loading) return
     const q = query.trim()
@@ -795,6 +857,24 @@ export default function Home() {
     })
   }, [folders])
   const sermonParagraphs = useMemo(() => sermonParagraphsFromText(currentSermon?.full_text), [currentSermon?.full_text])
+  const sermonDrawerParagraphs = useMemo(() => sermonParagraphsFromText(sermonDrawer.sermon?.full_text), [sermonDrawer.sermon?.full_text])
+  const highlightInText = (text: string, rawNeedle: string) => {
+    const needle = (rawNeedle || '').replace(/\s+/g, ' ').trim()
+    if (!needle || needle.length < 6) return text
+    const lower = text.toLowerCase()
+    const nLower = needle.toLowerCase()
+    const idx = lower.indexOf(nLower)
+    if (idx < 0) return text
+    return (
+      <>
+        {text.slice(0, idx)}
+        <mark style={{ background: `${accent.cta}33`, color: t.text, borderRadius: 4, padding: '0 2px' }}>
+          {text.slice(idx, idx + needle.length)}
+        </mark>
+        {text.slice(idx + needle.length)}
+      </>
+    )
+  }
 
   if (authMode) {
     return (
@@ -1136,6 +1216,15 @@ export default function Home() {
                               <div style={{ color: t.text2, fontSize: '0.8125em' }}>{r.source_date || (r.source === 'bible' ? 'KJV' : '')}</div>
                             </div>
                             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', minWidth: 0, justifyContent: 'flex-end' }}>
+                              {r.source === 'message' && (
+                                <button
+                                  type="button"
+                                  onClick={() => openSermonDrawer({ title: r.source_title, date: r.source_date, quote: r.quote_text })}
+                                  style={pillBtn(t)}
+                                >
+                                  Open sermon
+                                </button>
+                              )}
                               <button type="button" onClick={() => copyText(r.quote_text, i)} style={pillBtn(t)}>{copied === i ? 'Copied' : 'Copy'}</button>
                               <button type="button" onClick={() => { if (!user) return showToast('Sign in to save quotes'); setSaveModal({ text: r.quote_text, title: r.source_title, date: r.source_date }) }} style={pillBtn(t)}>Save</button>
                             </div>
@@ -1183,10 +1272,23 @@ export default function Home() {
                                 {m.sources && m.sources.length > 0 && (
                                   <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 14, minWidth: 0 }}>
                                     {m.sources.map((s: any, idx: number) => (
-                                      <div key={idx} style={{ background: t.bg3, border: `1px solid ${t.border}`, borderRadius: 12, padding: '10px 12px', minWidth: 0, maxWidth: '100%', flex: '1 1 140px' }}>
+                                      <button
+                                        key={idx}
+                                        type="button"
+                                        onClick={() => {
+                                          if (s?.source !== 'message') return
+                                          openSermonDrawer({
+                                            title: s?.title || '',
+                                            date: s?.date || '',
+                                            ref: s?.ref || '',
+                                            quote: extractSavableQuote(m.content || ''),
+                                          })
+                                        }}
+                                        style={{ background: t.bg3, border: `1px solid ${t.border}`, borderRadius: 12, padding: '10px 12px', minWidth: 0, maxWidth: '100%', flex: '1 1 140px', textAlign: 'left', cursor: s?.source === 'message' ? 'pointer' : 'default' }}
+                                      >
                                         <div style={{ fontSize: '0.875em', fontWeight: 600, color: headingTone, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{s.title || 'William Branham Sermon'}</div>
                                         <div style={{ fontSize: '0.8125em', color: t.text2, overflowWrap: 'anywhere' }}>{s.date || ''}{s.ref ? ` · #${s.ref}` : ''}</div>
-                                      </div>
+                                      </button>
                                     ))}
                                   </div>
                                 )}
@@ -1515,6 +1617,66 @@ export default function Home() {
                   </div>
                 </div>
               </div>
+            </div>
+          )}
+          {sermonDrawer.open && (
+            <div style={{ position: 'fixed', inset: 0, zIndex: 210, pointerEvents: 'none' }}>
+              <div
+                onClick={() => setSermonDrawer(prev => ({ ...prev, open: false }))}
+                style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.24)', pointerEvents: 'auto' }}
+              />
+              <aside
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  right: 0,
+                  height: '100%',
+                  width: 'min(560px, 92vw)',
+                  background: t.bg2,
+                  borderLeft: `1px solid ${t.border}`,
+                  boxShadow: '-8px 0 24px rgba(0,0,0,0.18)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  pointerEvents: 'auto',
+                }}
+              >
+                <div style={{ padding: '12px 14px', borderBottom: `1px solid ${t.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: '1em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {sermonDrawer.sermon?.title || sermonDrawer.sourceLabel || 'Sermon'}
+                    </div>
+                    <div style={{ color: t.text2, fontSize: 12 }}>
+                      {sermonDrawer.sermon?.date ? fmtSermonDate(sermonDrawer.sermon.date) : ''}
+                      {sermonDrawer.sermon?.reference_code ? ` · #${sermonDrawer.sermon.reference_code}` : ''}
+                    </div>
+                  </div>
+                  <button type="button" onClick={() => setSermonDrawer(prev => ({ ...prev, open: false }))} style={iconBtn(t)} aria-label="Close sermon panel">✕</button>
+                </div>
+                <div style={{ padding: 12, borderBottom: `1px solid ${t.border}`, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!sermonDrawer.sermon) return
+                      setCurrentSermon(sermonDrawer.sermon)
+                      setView('reader')
+                    }}
+                    style={secondaryBtn(t)}
+                  >
+                    Open in Sermon Library
+                  </button>
+                  <button type="button" onClick={() => setSermonDrawer(prev => ({ ...prev, open: false }))} style={pillBtn(t)}>Stay here</button>
+                </div>
+                <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 14, fontFamily: 'var(--font-merriweather), Georgia, serif', lineHeight: 1.85 }}>
+                  {sermonDrawer.loading && <p style={{ color: t.text2 }}>Loading sermon...</p>}
+                  {!sermonDrawer.loading && sermonDrawer.error && <p style={{ color: t.text2 }}>{sermonDrawer.error}</p>}
+                  {!sermonDrawer.loading && !sermonDrawer.error && sermonDrawerParagraphs.map((para, idx) => (
+                    <p key={idx} style={{ margin: '0 0 12px', overflowWrap: 'anywhere' }}>
+                      <strong style={{ marginRight: 6 }}>{idx + 1}.</strong>
+                      {highlightInText(para, sermonDrawer.highlightQuote)}
+                    </p>
+                  ))}
+                </div>
+              </aside>
             </div>
           )}
         </main>
