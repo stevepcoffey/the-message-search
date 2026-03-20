@@ -13,6 +13,7 @@ type SearchSource = 'both' | 'message' | 'bible'
 type SearchMatchType = 'exact_phrase' | 'all_words'
 type SermonSort = 'newest' | 'oldest'
 type SermonDecade = 'all' | '1947-49' | '1950s' | '1960s'
+type AccentTheme = 'green' | 'blue' | 'amber'
 type SermonItem = {
   id: string
   title: string
@@ -26,16 +27,19 @@ type View = 'chat' | 'sermons' | 'reader' | 'bookmarks' | 'bible' | 'settings'
 type HistoryItem = { id: string; text: string; mode: 'chat' | 'search' }
 
 /** Primary actions / filled buttons */
-const CTA = '#72A276'
-/** Light mint — highlights, dark-mode titles, subtle accents */
-const MINT = '#A0EEC0'
-const CTA_MUTED_BG = 'rgba(114, 162, 118, 0.18)'
+const CTA = 'var(--accent-color)'
+const ACCENT_THEMES: Record<AccentTheme, { cta: string; soft: string; navLight: string; navDark: string; label: string }> = {
+  green: { cta: '#72A276', soft: '#A0EEC0', navLight: '#4a6b52', navDark: '#3d5c45', label: 'Green' },
+  blue: { cta: '#1976D2', soft: '#90CAF9', navLight: '#1565C0', navDark: '#0D47A1', label: 'Blue' },
+  amber: { cta: '#FFB300', soft: '#FFE082', navLight: '#B26A00', navDark: '#8C5A00', label: 'Amber' },
+}
 
 /** Selected nav / tab: darker green + high-contrast (white) label — no green-on-green text. */
-function navSelectedStyle(darkMode: boolean): { background: string; color: string } {
+function navSelectedStyle(darkMode: boolean, accentTheme: AccentTheme): { background: string; color: string } {
+  const accent = ACCENT_THEMES[accentTheme]
   return darkMode
-    ? { background: '#3d5c45', color: '#ffffff' }
-    : { background: '#4a6b52', color: '#ffffff' }
+    ? { background: accent.navDark, color: '#ffffff' }
+    : { background: accent.navLight, color: '#ffffff' }
 }
 
 const LANDING_EXAMPLES: { mode: 'chat' | 'search'; label: string; q: string }[] = [
@@ -154,6 +158,7 @@ export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [darkMode, setDarkMode] = useState(false)
   const [fontSize, setFontSize] = useState(16)
+  const [accentTheme, setAccentTheme] = useState<AccentTheme>('green')
 
   const [user, setUser] = useState<any>(null)
   const [authMode, setAuthMode] = useState<'login' | 'signup' | null>(null)
@@ -206,17 +211,24 @@ export default function Home() {
   const taRef = useRef<HTMLTextAreaElement>(null)
   const endRef = useRef<HTMLDivElement>(null)
   const scrollAreaRef = useRef<HTMLDivElement>(null)
+  const accent = ACCENT_THEMES[accentTheme]
   const t = darkMode ? ui.dark : ui.light
-  const headingTone = darkMode ? MINT : '#27272A'
+  const headingTone = darkMode ? accent.soft : '#27272A'
 
   useEffect(() => {
     const saved = window.localStorage.getItem('apple-dark-mode')
     if (saved === 'true') setDarkMode(true)
+    const savedAccent = window.localStorage.getItem('apple-accent-theme')
+    if (savedAccent === 'green' || savedAccent === 'blue' || savedAccent === 'amber') setAccentTheme(savedAccent)
   }, [])
 
   useEffect(() => {
     window.localStorage.setItem('apple-dark-mode', String(darkMode))
   }, [darkMode])
+
+  useEffect(() => {
+    window.localStorage.setItem('apple-accent-theme', accentTheme)
+  }, [accentTheme])
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => setUser(session?.user ?? null))
@@ -547,7 +559,7 @@ export default function Home() {
   }
 
   return (
-    <div style={{ height: '100vh', background: t.bg, color: t.text, fontFamily: fontStack, fontSize, fontWeight: 500, lineHeight: 1.7, transition: 'background 0.15s ease, color 0.15s ease', overflow: 'hidden' }}>
+    <div style={{ '--accent-color': accent.cta, height: '100vh', background: t.bg, color: t.text, fontFamily: fontStack, fontSize, fontWeight: 500, lineHeight: 1.7, transition: 'background 0.15s ease, color 0.15s ease', overflow: 'hidden' } as React.CSSProperties}>
       {toast && <div style={{ position: 'fixed', bottom: 20, left: '50%', transform: 'translateX(-50%)', background: t.bg3, color: t.text, border: `1px solid ${t.border}`, borderRadius: 999, padding: '7px 12px', fontSize: 12, zIndex: 200 }}>{toast}</div>}
 
       {saveModal && (
@@ -653,7 +665,7 @@ export default function Home() {
                 type="button"
                 key={item.key}
                 onClick={item.onClick}
-                style={{ ...navBtn(t, item.active, darkMode), marginBottom: 2, flexShrink: 0 }}
+                style={{ ...navBtn(t, item.active, darkMode, accentTheme), marginBottom: 2, flexShrink: 0 }}
               >
                 {item.label}
               </button>
@@ -715,7 +727,7 @@ export default function Home() {
             </div>
 
             <div style={{ marginTop: 'auto', flexShrink: 0, borderTop: `1px solid ${t.border}`, paddingTop: 8 }}>
-              <button type="button" onClick={() => setView('settings')} style={{ ...navBtn(t, view === 'settings', darkMode), width: '100%', marginBottom: 8 }}>Settings</button>
+              <button type="button" onClick={() => setView('settings')} style={{ ...navBtn(t, view === 'settings', darkMode, accentTheme), width: '100%', marginBottom: 8 }}>Settings</button>
             </div>
 
             <div style={{ borderTop: `1px solid ${t.border}`, paddingTop: 8, flexShrink: 0 }}>
@@ -921,7 +933,7 @@ export default function Home() {
                         <div style={{ display: 'inline-flex', gap: 2, background: t.bg3, borderRadius: 999, padding: 4, alignItems: 'center' }}>
                           {(['chat', 'search'] as const).map(v => {
                             const active = mode === v
-                            const ns = active ? navSelectedStyle(darkMode) : null
+                            const ns = active ? navSelectedStyle(darkMode, accentTheme) : null
                             return (
                               <button
                                 type="button"
@@ -961,7 +973,7 @@ export default function Home() {
                           <div style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                             {(['both', 'message', 'bible'] as SearchSource[]).map(s => {
                               const active = searchSource === s
-                              const ns = active ? navSelectedStyle(darkMode) : null
+                              const ns = active ? navSelectedStyle(darkMode, accentTheme) : null
                               return (
                                 <button
                                   type="button"
@@ -985,7 +997,7 @@ export default function Home() {
                                 { id: 'all_words', label: 'All words' },
                               ] as const).map(opt => {
                                 const active = searchMatchType === opt.id
-                                const ns = active ? navSelectedStyle(darkMode) : null
+                                const ns = active ? navSelectedStyle(darkMode, accentTheme) : null
                                 return (
                                   <button
                                     type="button"
@@ -1296,6 +1308,38 @@ export default function Home() {
                   </div>
                 </div>
                 <div style={card(t)}>
+                  <div style={{ marginBottom: 10 }}>
+                    <div style={{ fontWeight: 600 }}>App color</div>
+                    <div style={{ color: t.text2, fontSize: 13 }}>Choose your accent color for buttons and highlights.</div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {(['blue', 'green', 'amber'] as AccentTheme[]).map((key) => {
+                      const a = ACCENT_THEMES[key]
+                      const active = accentTheme === key
+                      return (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => setAccentTheme(key)}
+                          style={{
+                            ...pillBtn(t),
+                            background: active ? a.cta : 'transparent',
+                            color: active ? '#ffffff' : t.text2,
+                            borderColor: active ? a.cta : t.border,
+                            fontWeight: active ? 700 : 600,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 8,
+                          }}
+                        >
+                          <span style={{ width: 10, height: 10, borderRadius: 999, background: a.cta, border: active ? '1px solid rgba(255,255,255,0.7)' : '1px solid transparent' }} />
+                          {a.label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+                <div style={card(t)}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div>
                       <div style={{ fontWeight: 600 }}>Reading size</div>
@@ -1349,8 +1393,8 @@ function pillBtn(t: { bg3: string; border: string; text2: string }): React.CSSPr
 function iconBtn(t: { bg3: string; border: string; text2: string }): React.CSSProperties {
   return { width: 32, height: 32, borderRadius: 12, border: `1px solid ${t.border}`, background: t.bg3, color: t.text2, fontSize: '0.875em', cursor: 'pointer', transition: 'all 0.15s ease', flexShrink: 0, display: 'grid', placeItems: 'center', padding: 0 }
 }
-function navBtn(t: { bg3: string; border: string; text2: string; text: string }, active: boolean, darkMode: boolean): React.CSSProperties {
-  const ns = active ? navSelectedStyle(darkMode) : null
+function navBtn(t: { bg3: string; border: string; text2: string; text: string }, active: boolean, darkMode: boolean, accentTheme: AccentTheme): React.CSSProperties {
+  const ns = active ? navSelectedStyle(darkMode, accentTheme) : null
   return {
     width: '100%',
     maxWidth: '100%',
