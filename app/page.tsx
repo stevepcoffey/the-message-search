@@ -10,6 +10,7 @@ type Folder = { id: string; name: string; color: string; created_at?: string }
 type SavedQuote = { id: string; quote_text: string; source_title: string; source_date: string; folder_id: string | null }
 type SearchResult = { quote_text: string; source_title: string; source_date: string; source: 'message' | 'bible' }
 type SearchSource = 'both' | 'message' | 'bible'
+type SearchMatchType = 'exact_phrase' | 'all_words'
 type View = 'chat' | 'sermons' | 'reader' | 'bookmarks' | 'bible' | 'settings'
 type HistoryItem = { id: string; text: string; mode: 'chat' | 'search' }
 
@@ -155,6 +156,7 @@ export default function Home() {
 
   const [mode, setMode] = useState<'chat' | 'search'>('chat')
   const [searchSource, setSearchSource] = useState<SearchSource>('both')
+  const [searchMatchType, setSearchMatchType] = useState<SearchMatchType>('exact_phrase')
   const [query, setQuery] = useState('')
   const [lastSearchQuery, setLastSearchQuery] = useState('')
   const [messages, setMessages] = useState<Message[]>([])
@@ -328,16 +330,20 @@ export default function Home() {
     return content.replace(/\s+/g, ' ').trim().slice(0, 200)
   }
 
-  const getSearchHighlightTerms = (raw: string): string[] => {
+  const getSearchHighlightTerms = (raw: string, matchType: SearchMatchType): string[] => {
     const q = raw.trim()
     if (!q) return []
+    if (matchType === 'exact_phrase') {
+      const phrase = q.replace(/^"+|"+$/g, '').trim()
+      return phrase ? [phrase] : []
+    }
     const exactPhrases = [...q.matchAll(/"([^"]+)"/g)].map(m => m[1].trim()).filter(Boolean)
     if (exactPhrases.length) return [...new Set(exactPhrases)]
     return [...new Set(q.split(/\s+/).map(s => s.trim()).filter(s => s.length >= 2))]
   }
 
-  const highlightMatches = (text: string, rawQuery: string) => {
-    const terms = getSearchHighlightTerms(rawQuery)
+  const highlightMatches = (text: string, rawQuery: string, matchType: SearchMatchType) => {
+    const terms = getSearchHighlightTerms(rawQuery, matchType)
     if (!terms.length || !text) return [text]
     const escaped = terms.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
     const re = new RegExp(`(${escaped.join('|')})`, 'ig')
@@ -368,7 +374,7 @@ export default function Home() {
         const res = await fetch('/api/search', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ query: q, source: searchSource }),
+          body: JSON.stringify({ query: q, source: searchSource, match_type: searchMatchType }),
         })
         const data = await res.json()
         if (!res.ok) throw new Error(data?.error || 'Search failed')
@@ -646,7 +652,7 @@ export default function Home() {
                       {searchResults.map((r, i) => (
                         <div key={i} style={{ ...card(t), overflow: 'hidden', minWidth: 0 }}>
                           <p style={{ margin: 0, borderLeft: `3px solid ${CTA}`, paddingLeft: 12, fontStyle: 'italic', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
-                            "{highlightMatches(r.quote_text, lastSearchQuery)}"
+                            "{highlightMatches(r.quote_text, lastSearchQuery, searchMatchType)}"
                           </p>
                           <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', flexWrap: 'wrap', minWidth: 0 }}>
                             <div style={{ minWidth: 0, flex: '1 1 140px' }}>
@@ -836,10 +842,39 @@ export default function Home() {
                                 </button>
                               )
                             })}
+                            <div style={{ display: 'inline-flex', gap: 6, marginLeft: 4, flexWrap: 'wrap' }}>
+                              {([
+                                { id: 'exact_phrase', label: 'Exact phrase' },
+                                { id: 'all_words', label: 'All words' },
+                              ] as const).map(opt => {
+                                const active = searchMatchType === opt.id
+                                const ns = active ? navSelectedStyle(darkMode) : null
+                                return (
+                                  <button
+                                    type="button"
+                                    key={opt.id}
+                                    onClick={() => setSearchMatchType(opt.id)}
+                                    style={{
+                                      ...pillBtn(t),
+                                      background: ns ? ns.background : 'transparent',
+                                      borderColor: active ? t.text : t.border,
+                                      color: ns ? ns.color : t.text2,
+                                      fontWeight: active ? 700 : 600,
+                                    }}
+                                  >
+                                    {opt.label}
+                                  </button>
+                                )
+                              })}
+                            </div>
                           </div>
                         )}
                         <span style={{ fontSize: 12, fontStyle: 'italic', color: t.text3, lineHeight: 1.35 }}>
-                          {mode === 'chat' ? 'AI synthesized answer with sources' : 'Exact text — sermons & KJV'}
+                          {mode === 'chat'
+                            ? 'AI synthesized answer with sources'
+                            : searchMatchType === 'exact_phrase'
+                              ? 'Exact phrase match in sermons & KJV'
+                              : 'Contains all entered words (any order)'}
                         </span>
                       </div>
                       <button
