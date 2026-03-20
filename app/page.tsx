@@ -75,6 +75,10 @@ const RELATED_QUERY_TERMS: Record<string, string[]> = {
   repentance: ['repent', 'turn from sin', 'confession'],
   baptism: ['water baptism', 'Jesus Name', 'remission of sins'],
   godhead: ['Father Son Holy Ghost', 'Oneness', 'deity of Christ'],
+  resurrection: ['resurrection life', 'quickening power', 'eternal life', 'raised with Christ'],
+  bride: ['Bride of Christ', 'rapture', 'end-time bride', 'wedding supper'],
+  prophecy: ['discernment', 'vision', 'thus saith the Lord', 'sign'],
+  sin: ['repentance', 'forgiveness', 'atonement', 'new birth'],
 }
 
 const COLORS = ['#A0EEC0', '#72A276', '#525252', '#404040', '#262626', '#000000']
@@ -640,26 +644,10 @@ export default function Home() {
       if (out.length >= 8) return out
     }
 
-    // Fallback to lightweight relevance extraction from results when no mapped terms hit.
-    if (!searchResults.length) return out
-    const queryTerms = new Set(getSearchHighlightTerms(lastSearchQuery, searchMatchType).map(t => t.toLowerCase()))
-    const stop = new Set(['the', 'and', 'for', 'with', 'that', 'this', 'from', 'what', 'when', 'where', 'about', 'into', 'have', 'were', 'will', 'shall', 'unto', 'your', 'you', 'his', 'her', 'their'])
-    const counts = new Map<string, number>()
-    for (const r of searchResults.slice(0, 50)) {
-      const words = `${r.quote_text} ${r.source_title}`.toLowerCase().split(/[^a-z0-9]+/g)
-      for (const w of words) {
-        if (!w || w.length < 4 || stop.has(w) || queryTerms.has(w)) continue
-        counts.set(w, (counts.get(w) || 0) + 1)
-      }
-    }
-    for (const [w] of [...counts.entries()].sort((a, b) => b[1] - a[1])) {
-      if (out.length >= 8) break
-      if (seen.has(w)) continue
-      seen.add(w)
-      out.push(w)
-    }
+    // Do not show noisy frequency-based terms (they/them/said/etc).
+    // If no curated related terms are found, hide the section.
     return out
-  }, [searchResults, lastSearchQuery, searchMatchType])
+  }, [lastSearchQuery])
 
   const copyText = (text: string, i: number) => {
     navigator.clipboard.writeText(text)
