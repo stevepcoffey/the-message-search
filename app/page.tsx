@@ -214,6 +214,7 @@ export default function Home() {
   const accent = ACCENT_THEMES[accentTheme]
   const t = darkMode ? ui.dark : ui.light
   const headingTone = darkMode ? accent.soft : '#27272A'
+  const showInlineComposer = !loading && ((mode === 'chat' && messages.length === 0) || (mode === 'search' && searchResults.length === 0))
 
   useEffect(() => {
     const saved = window.localStorage.getItem('apple-dark-mode')
@@ -529,6 +530,186 @@ export default function Home() {
     setLoading(false)
   }
 
+  const renderComposer = (inline = false) => (
+    <div style={inline ? { maxWidth: 760, margin: '4px auto 14px', minWidth: 0 } : { flexShrink: 0, borderTop: `1px solid ${t.border}`, padding: '12px 14px 16px', background: t.bg }}>
+      <div style={{ maxWidth: 760, margin: '0 auto', minWidth: 0 }}>
+        <div
+          style={{
+            borderRadius: 22,
+            background: t.bg,
+            border: `1px solid ${composerFocused ? CTA : t.border}`,
+            boxShadow: t.shadow,
+            padding: '14px 14px 12px',
+            transition: 'border-color 0.15s ease',
+            minWidth: 0,
+          }}
+        >
+          <textarea
+            ref={taRef}
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            onFocus={() => setComposerFocused(true)}
+            onBlur={() => setComposerFocused(false)}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                send()
+              }
+            }}
+            placeholder={
+              mode === 'chat'
+                ? 'Ask anything about the Message or the Bible…'
+                : 'Describe a concept or search exact phrases in sermons and the KJV…'
+            }
+            rows={2}
+            style={{
+              width: '100%',
+              minWidth: 0,
+              minHeight: 48,
+              border: 'none',
+              outline: 'none',
+              resize: 'none',
+              background: 'transparent',
+              color: t.text,
+              fontSize: '1em',
+              fontWeight: 500,
+              lineHeight: 1.5,
+              padding: 0,
+              margin: '0 0 12px',
+              maxHeight: 160,
+              overflowWrap: 'anywhere',
+              wordBreak: 'break-word',
+              display: 'block',
+            }}
+          />
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
+              <div style={{ display: 'inline-flex', gap: 2, background: t.bg3, borderRadius: 999, padding: 4, alignItems: 'center' }}>
+                {(['chat', 'search'] as const).map(v => {
+                  const active = mode === v
+                  const ns = active ? navSelectedStyle(darkMode, accentTheme) : null
+                  return (
+                    <button
+                      type="button"
+                      key={v}
+                      onClick={() => setMode(v)}
+                      style={{
+                        border: 'none',
+                        borderRadius: 999,
+                        padding: '7px 12px',
+                        background: ns ? ns.background : 'transparent',
+                        color: ns ? ns.color : t.text2,
+                        fontWeight: 600,
+                        fontSize: '0.875em',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s ease',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                      }}
+                    >
+                      {v === 'chat' ? (
+                        <>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
+                          Chat
+                        </>
+                      ) : (
+                        <>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden><circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" /></svg>
+                          Search
+                        </>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+              {mode === 'search' && (
+                <div style={{ display: 'inline-flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <div style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', padding: '2px 2px 2px 0' }}>
+                    <span style={{ fontSize: 11, letterSpacing: '0.04em', textTransform: 'uppercase', color: t.text3, fontWeight: 700 }}>Source</span>
+                    {(['both', 'message', 'bible'] as SearchSource[]).map(s => {
+                      const active = searchSource === s
+                      return (
+                        <button
+                          type="button"
+                          key={s}
+                          onClick={() => setSearchSource(s)}
+                          style={{
+                            ...pillBtn(t),
+                            background: active ? `${accent.cta}26` : 'transparent',
+                            borderColor: active ? `${accent.cta}80` : t.border,
+                            color: active ? (darkMode ? accent.soft : '#1f2937') : t.text2,
+                            fontWeight: active ? 700 : 600,
+                          }}
+                        >
+                          {s === 'both' ? 'Both' : s === 'message' ? 'Message' : 'Bible'}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <div style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', padding: '2px 2px 2px 0' }}>
+                    <span style={{ fontSize: 11, letterSpacing: '0.04em', textTransform: 'uppercase', color: t.text3, fontWeight: 700 }}>Match</span>
+                    {([
+                      { id: 'exact_phrase', label: 'Exact phrase' },
+                      { id: 'all_words', label: 'All words' },
+                    ] as const).map(opt => {
+                      const active = searchMatchType === opt.id
+                      return (
+                        <button
+                          type="button"
+                          key={opt.id}
+                          onClick={() => setSearchMatchType(opt.id)}
+                          style={{
+                            ...pillBtn(t),
+                            background: active ? `${accent.cta}26` : 'transparent',
+                            borderColor: active ? `${accent.cta}80` : t.border,
+                            color: active ? (darkMode ? accent.soft : '#1f2937') : t.text2,
+                            fontWeight: active ? 700 : 600,
+                          }}
+                        >
+                          {opt.label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+              <span style={{ fontSize: 12, fontStyle: 'italic', color: t.text3, lineHeight: 1.35 }}>
+                {mode === 'chat'
+                  ? 'AI synthesized answer with sources'
+                  : searchMatchType === 'exact_phrase'
+                    ? 'Exact phrase match in sermons & KJV'
+                    : 'Contains all entered words (any order)'}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={send}
+              disabled={!query.trim() || loading}
+              style={{
+                flexShrink: 0,
+                width: 42,
+                height: 42,
+                borderRadius: 12,
+                border: `1px solid ${t.border}`,
+                background: t.bg3,
+                color: query.trim() && !loading ? t.text : t.text3,
+                display: 'grid',
+                placeItems: 'center',
+                cursor: query.trim() && !loading ? 'pointer' : 'default',
+                transition: 'all 0.15s ease',
+              }}
+              aria-label="Send"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 2L11 13"/><path d="M22 2L15 22l-4-9-9-4 20-7z"/></svg>
+            </button>
+          </div>
+        </div>
+        <p style={{ textAlign: 'center', marginTop: 10, color: t.text2, fontSize: '0.8125em', padding: '0 4px', overflowWrap: 'anywhere' }}>Sources limited to William Branham&apos;s sermons and the KJV Bible.</p>
+      </div>
+    </div>
+  )
+
   const folderQuotes = useMemo(() => activeFolder ? savedQuotes.filter(q => q.folder_id === activeFolder.id) : [], [activeFolder, savedQuotes])
 
   const foldersSorted = useMemo(() => {
@@ -796,6 +977,7 @@ export default function Home() {
                       {!searchResults.length && !loading && (
                         <HomeLanding t={t} onPick={(m, q) => { setMode(m); setQuery(q); setTimeout(() => taRef.current?.focus(), 0) }} />
                       )}
+                      {showInlineComposer && renderComposer(true)}
                       {searchResults.map((r, i) => (
                         <div key={i} style={{ ...card(t), marginBottom: 12, minWidth: 0, padding: 'clamp(14px, 2.3vw, 20px)' }}>
                           <p style={{ margin: 0, borderLeft: `3px solid ${CTA}`, paddingLeft: 'clamp(12px, 1.8vw, 18px)', paddingRight: 'clamp(2px, 0.8vw, 8px)', lineHeight: 1.7, fontStyle: 'italic', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
@@ -819,6 +1001,7 @@ export default function Home() {
                       {!messages.length && !loading && (
                         <HomeLanding t={t} onPick={(m, q) => { setMode(m); setQuery(q); setTimeout(() => taRef.current?.focus(), 0) }} />
                       )}
+                      {showInlineComposer && renderComposer(true)}
                       {messages.map((m, i) => (
                         <div key={i} style={{ marginBottom: 16 }}>
                           {m.role === 'user' ? (
@@ -877,181 +1060,7 @@ export default function Home() {
                 </div>
               </div>
 
-              <div style={{ flexShrink: 0, borderTop: `1px solid ${t.border}`, padding: '12px 14px 16px', background: t.bg }}>
-                <div style={{ maxWidth: 760, margin: '0 auto', minWidth: 0 }}>
-                  <div
-                    style={{
-                      borderRadius: 22,
-                      background: t.bg,
-                      border: `1px solid ${composerFocused ? CTA : t.border}`,
-                      boxShadow: t.shadow,
-                      padding: '14px 14px 12px',
-                      transition: 'border-color 0.15s ease',
-                      minWidth: 0,
-                    }}
-                  >
-                    <textarea
-                      ref={taRef}
-                      value={query}
-                      onChange={e => setQuery(e.target.value)}
-                      onFocus={() => setComposerFocused(true)}
-                      onBlur={() => setComposerFocused(false)}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter' && !e.shiftKey) {
-                          e.preventDefault()
-                          send()
-                        }
-                      }}
-                      placeholder={
-                        mode === 'chat'
-                          ? 'Ask anything about the Message or the Bible…'
-                          : 'Describe a concept or search exact phrases in sermons and the KJV…'
-                      }
-                      rows={2}
-                      style={{
-                        width: '100%',
-                        minWidth: 0,
-                        minHeight: 48,
-                        border: 'none',
-                        outline: 'none',
-                        resize: 'none',
-                        background: 'transparent',
-                        color: t.text,
-                        fontSize: '1em',
-                        fontWeight: 500,
-                        lineHeight: 1.5,
-                        padding: 0,
-                        margin: '0 0 12px',
-                        maxHeight: 160,
-                        overflowWrap: 'anywhere',
-                        wordBreak: 'break-word',
-                        display: 'block',
-                      }}
-                    />
-                    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
-                        <div style={{ display: 'inline-flex', gap: 2, background: t.bg3, borderRadius: 999, padding: 4, alignItems: 'center' }}>
-                          {(['chat', 'search'] as const).map(v => {
-                            const active = mode === v
-                            const ns = active ? navSelectedStyle(darkMode, accentTheme) : null
-                            return (
-                              <button
-                                type="button"
-                                key={v}
-                                onClick={() => setMode(v)}
-                                style={{
-                                  border: 'none',
-                                  borderRadius: 999,
-                                  padding: '7px 12px',
-                                  background: ns ? ns.background : 'transparent',
-                                  color: ns ? ns.color : t.text2,
-                                  fontWeight: 600,
-                                  fontSize: '0.875em',
-                                  cursor: 'pointer',
-                                  transition: 'all 0.15s ease',
-                                  display: 'inline-flex',
-                                  alignItems: 'center',
-                                  gap: 6,
-                                }}
-                              >
-                                {v === 'chat' ? (
-                                  <>
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>
-                                    Chat
-                                  </>
-                                ) : (
-                                  <>
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden><circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" /></svg>
-                                    Search
-                                  </>
-                                )}
-                              </button>
-                            )
-                          })}
-                        </div>
-                        {mode === 'search' && (
-                          <div style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                            {(['both', 'message', 'bible'] as SearchSource[]).map(s => {
-                              const active = searchSource === s
-                              const ns = active ? navSelectedStyle(darkMode, accentTheme) : null
-                              return (
-                                <button
-                                  type="button"
-                                  key={s}
-                                  onClick={() => setSearchSource(s)}
-                                  style={{
-                                    ...pillBtn(t),
-                                    background: ns ? ns.background : 'transparent',
-                                    borderColor: active ? t.text : t.border,
-                                    color: ns ? ns.color : t.text2,
-                                    fontWeight: active ? 700 : 600,
-                                  }}
-                                >
-                                  {s === 'both' ? 'Both' : s === 'message' ? 'Message' : 'Bible'}
-                                </button>
-                              )
-                            })}
-                            <div style={{ display: 'inline-flex', gap: 6, marginLeft: 4, flexWrap: 'wrap' }}>
-                              {([
-                                { id: 'exact_phrase', label: 'Exact phrase' },
-                                { id: 'all_words', label: 'All words' },
-                              ] as const).map(opt => {
-                                const active = searchMatchType === opt.id
-                                const ns = active ? navSelectedStyle(darkMode, accentTheme) : null
-                                return (
-                                  <button
-                                    type="button"
-                                    key={opt.id}
-                                    onClick={() => setSearchMatchType(opt.id)}
-                                    style={{
-                                      ...pillBtn(t),
-                                      background: ns ? ns.background : 'transparent',
-                                      borderColor: active ? t.text : t.border,
-                                      color: ns ? ns.color : t.text2,
-                                      fontWeight: active ? 700 : 600,
-                                    }}
-                                  >
-                                    {opt.label}
-                                  </button>
-                                )
-                              })}
-                            </div>
-                          </div>
-                        )}
-                        <span style={{ fontSize: 12, fontStyle: 'italic', color: t.text3, lineHeight: 1.35 }}>
-                          {mode === 'chat'
-                            ? 'AI synthesized answer with sources'
-                            : searchMatchType === 'exact_phrase'
-                              ? 'Exact phrase match in sermons & KJV'
-                              : 'Contains all entered words (any order)'}
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={send}
-                        disabled={!query.trim() || loading}
-                        style={{
-                          flexShrink: 0,
-                          width: 42,
-                          height: 42,
-                          borderRadius: 12,
-                          border: `1px solid ${t.border}`,
-                          background: t.bg3,
-                          color: query.trim() && !loading ? t.text : t.text3,
-                          display: 'grid',
-                          placeItems: 'center',
-                          cursor: query.trim() && !loading ? 'pointer' : 'default',
-                          transition: 'all 0.15s ease',
-                        }}
-                        aria-label="Send"
-                      >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 2L11 13"/><path d="M22 2L15 22l-4-9-9-4 20-7z"/></svg>
-                      </button>
-                    </div>
-                  </div>
-                  <p style={{ textAlign: 'center', marginTop: 10, color: t.text2, fontSize: '0.8125em', padding: '0 4px', overflowWrap: 'anywhere' }}>Sources limited to William Branham&apos;s sermons and the KJV Bible.</p>
-                </div>
-              </div>
+              {!showInlineComposer && renderComposer(false)}
             </div>
           )}
 
