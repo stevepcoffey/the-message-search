@@ -399,6 +399,28 @@ export default function BibleReader({
                     {r.book} {r.chapter}:{r.verse}
                   </div>
                   <div style={{ fontFamily: BIBLE_SERIF_FONT, fontSize: 14, color: t.text2, lineHeight: 1.5 }}>{r.text}</div>
+                  <div style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end' }}>
+                    <button
+                      type="button"
+                      onClick={e => {
+                        e.stopPropagation()
+                        navigator.clipboard.writeText(`${r.book} ${r.chapter}:${r.verse} ${r.text}`)
+                        showToast('Copied verse')
+                      }}
+                      style={{
+                        padding: '6px 10px',
+                        borderRadius: 999,
+                        border: `1px solid ${t.border}`,
+                        background: t.bg3,
+                        color: t.text2,
+                        fontWeight: 600,
+                        fontSize: 12,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Copy
+                    </button>
+                  </div>
                 </button>
               ))}
           </div>

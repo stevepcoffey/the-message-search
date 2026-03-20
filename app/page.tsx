@@ -11,6 +11,18 @@ type SavedQuote = { id: string; quote_text: string; source_title: string; source
 type SearchResult = { quote_text: string; source_title: string; source_date: string; source: 'message' | 'bible' }
 type SearchSource = 'both' | 'message' | 'bible'
 type SearchMatchType = 'exact_phrase' | 'all_words'
+type SermonSort = 'newest' | 'oldest'
+type SermonDecade = 'all' | '1947-49' | '1950s' | '1960s'
+type SermonLocation = 'all' | 'Jeffersonville' | 'Chicago' | 'Los Angeles' | 'Phoenix' | 'Others'
+type SermonItem = {
+  id: string
+  title: string
+  date: string | null
+  location: string | null
+  reference_code: string | null
+  full_text: string | null
+  word_count: number | null
+}
 type View = 'chat' | 'sermons' | 'reader' | 'bookmarks' | 'bible' | 'settings'
 type HistoryItem = { id: string; text: string; mode: 'chat' | 'search' }
 
@@ -59,17 +71,29 @@ const ui = {
   },
 }
 
-const SERMONS = [
-  { id: '1', title: 'What Is The New Birth?', date: 'Jan 8, 1961', location: 'Jeffersonville, IN', ref: '61-0108', preview: 'A foundational message on true conversion by the Holy Spirit.' },
-  { id: '2', title: 'The Spoken Word Is The Original Seed', date: 'Mar 18, 1962', location: 'Jeffersonville, IN', ref: '62-0318', preview: 'How the original seed of God produces after its kind.' },
-  { id: '3', title: 'Shalom', date: 'Jan 12, 1964', location: 'Phoenix, AZ', ref: '64-0112', preview: 'A message of peace and hope in a troubled hour.' },
-]
+const SERMON_PAGE_SIZE = 50
+const SERMON_LOCATION_PILLS: SermonLocation[] = ['all', 'Jeffersonville', 'Chicago', 'Los Angeles', 'Phoenix', 'Others']
 
-const SERMON_PARAS = [
-  'The new birth is not joining a church. It is a spiritual birth from above.',
-  'Except a man be born again, he cannot see the kingdom of God. The Spirit must quicken the Word seed in the believer.',
-  'When a man is truly born again, old things pass away and a new life appears.',
-]
+function fmtSermonDate(dateStr?: string | null): string {
+  if (!dateStr) return 'Unknown date'
+  const d = new Date(dateStr)
+  if (Number.isNaN(d.getTime())) return dateStr
+  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })
+}
+
+function locationContains(location: string | null, key: Exclude<SermonLocation, 'all' | 'Others'>): boolean {
+  return (location || '').toLowerCase().includes(key.toLowerCase())
+}
+
+function isOtherLocation(location: string | null): boolean {
+  if (!location) return false
+  return !(
+    locationContains(location, 'Jeffersonville') ||
+    locationContains(location, 'Chicago') ||
+    locationContains(location, 'Los Angeles') ||
+    locationContains(location, 'Phoenix')
+  )
+}
 
 function HomeLanding({
   t,
@@ -177,7 +201,17 @@ export default function Home() {
   const [saveFolderId, setSaveFolderId] = useState<string | null>(null)
   const [toast, setToast] = useState('')
 
-  const [currentSermon, setCurrentSermon] = useState(SERMONS[0])
+  const [currentSermon, setCurrentSermon] = useState<SermonItem | null>(null)
+  const [sermonSearch, setSermonSearch] = useState('')
+  const [sermonSort, setSermonSort] = useState<SermonSort>('newest')
+  const [sermonDecade, setSermonDecade] = useState<SermonDecade>('all')
+  const [sermonLocation, setSermonLocation] = useState<SermonLocation>('all')
+  const [sermonRows, setSermonRows] = useState<SermonItem[]>([])
+  const [sermonTotal, setSermonTotal] = useState(0)
+  const [sermonGrandTotal, setSermonGrandTotal] = useState(0)
+  const [sermonPage, setSermonPage] = useState(0)
+  const [sermonHasMore, setSermonHasMore] = useState(true)
+  const [sermonLoading, setSermonLoading] = useState(false)
   const [bibleLoc, setBibleLoc] = useState({ book: 'Genesis', chapter: 1 })
   /** From sidebar "Folders": show only folder list (newest first), not all saved quotes. */
   const [foldersListOnly, setFoldersListOnly] = useState(false)
@@ -233,10 +267,10 @@ export default function Home() {
     }
   }, [messages, loading, mode])
 
-  const showToast = (msg: string) => {
+  const showToast = useCallback((msg: string) => {
     setToast(msg)
     setTimeout(() => setToast(''), 2500)
-  }
+  }, [])
 
   const loadFolders = async () => {
     const { data } = await supabase.from('folders').select('*').order('created_at')
@@ -247,6 +281,83 @@ export default function Home() {
     const { data } = await supabase.from('saved_quotes').select('*').order('created_at', { ascending: false })
     setSavedQuotes(data || [])
   }
+
+  const loadSermons = useCallback(async (page: number, append: boolean) => {
+    setSermonLoading(true)
+    const q = sermonSearch.trim()
+    const from = page * SERMON_PAGE_SIZE
+    const to = from + SERMON_PAGE_SIZE - 1
+
+    let queryBuilder = supabase
+      .from('sermons')
+      .select('id,title,date,location,reference_code,full_text,word_count', { count: 'exact' })
+
+    if (q) {
+      queryBuilder = queryBuilder.or(`title.ilike.%${q}%,location.ilike.%${q}%,reference_code.ilike.%${q}%`)
+    }
+
+    if (sermonDecade === '1947-49') queryBuilder = queryBuilder.gte('date', '1947-01-01').lt('date', '1950-01-01')
+    if (sermonDecade === '1950s') queryBuilder = queryBuilder.gte('date', '1950-01-01').lt('date', '1960-01-01')
+    if (sermonDecade === '1960s') queryBuilder = queryBuilder.gte('date', '1960-01-01').lt('date', '1970-01-01')
+
+    if (sermonLocation !== 'all' && sermonLocation !== 'Others') {
+      queryBuilder = queryBuilder.ilike('location', `%${sermonLocation}%`)
+    }
+    if (sermonLocation === 'Others') {
+      queryBuilder = queryBuilder
+        .not('location', 'is', null)
+        .not('location', 'ilike', '%Jeffersonville%')
+        .not('location', 'ilike', '%Chicago%')
+        .not('location', 'ilike', '%Los Angeles%')
+        .not('location', 'ilike', '%Phoenix%')
+    }
+
+    const { data, count, error } = await queryBuilder
+      .order('date', { ascending: sermonSort === 'oldest', nullsFirst: false })
+      .range(from, to)
+
+    if (error) {
+      showToast(error.message || 'Failed to load sermons')
+      setSermonLoading(false)
+      return
+    }
+
+    let rows = (data || []) as SermonItem[]
+    if (q) {
+      const lq = q.toLowerCase()
+      rows = rows.filter(r =>
+        (r.title || '').toLowerCase().includes(lq) ||
+        (r.location || '').toLowerCase().includes(lq) ||
+        (r.reference_code || '').toLowerCase().includes(lq) ||
+        fmtSermonDate(r.date).toLowerCase().includes(lq)
+      )
+    }
+    if (sermonLocation === 'Others') {
+      rows = rows.filter(r => isOtherLocation(r.location))
+    }
+
+    setSermonTotal(count || 0)
+    setSermonHasMore(from + rows.length < (count || 0))
+    setSermonRows(prev => (append ? [...prev, ...rows] : rows))
+    setSermonPage(page)
+    setSermonLoading(false)
+  }, [sermonSearch, sermonDecade, sermonLocation, sermonSort, showToast])
+
+  const loadSermonGrandTotal = useCallback(async () => {
+    const { count } = await supabase.from('sermons').select('id', { count: 'exact', head: true })
+    setSermonGrandTotal(count || 0)
+  }, [])
+
+  useEffect(() => {
+    loadSermonGrandTotal()
+  }, [loadSermonGrandTotal])
+
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      loadSermons(0, false)
+    }, 220)
+    return () => window.clearTimeout(id)
+  }, [loadSermons])
 
   const signIn = async () => {
     setAuthLoading(true)
@@ -654,12 +765,30 @@ export default function Home() {
                   ☰
                 </button>
               )}
+              <div style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap', background: t.bg2, border: `1px solid ${t.border}`, borderRadius: 999, padding: 4 }}>
+                {([
+                  { id: 'chat', label: 'Chat', onClick: () => { setView('chat'); setMode('chat') }, active: view === 'chat' && mode === 'chat' },
+                  { id: 'search', label: 'Search', onClick: () => { setView('chat'); setMode('search') }, active: view === 'chat' && mode === 'search' },
+                  { id: 'bible', label: 'Bible', onClick: () => setView('bible'), active: view === 'bible' },
+                  { id: 'folders', label: 'Folders', onClick: () => { setView('bookmarks'); setActiveFolder(null); setFoldersListOnly(true) }, active: view === 'bookmarks' },
+                  { id: 'sermons', label: 'Sermon Library', onClick: () => setView('sermons'), active: view === 'sermons' || view === 'reader' },
+                ] as const).map(tab => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={tab.onClick}
+                    style={{ border: 'none', borderRadius: 999, padding: '6px 10px', background: tab.active ? '#86CD82' : 'transparent', color: tab.active ? '#17351f' : t.text2, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
               <span style={{ fontSize: '0.9375em', color: t.text, overflowWrap: 'anywhere', fontWeight: 600 }}>
                 {view === 'bible'
                   ? `${bibleLoc.book} · Chapter ${bibleLoc.chapter}`
                   : view === 'reader'
-                    ? currentSermon.title
-                    : viewTitle(view, currentSermon.title)}
+                    ? (currentSermon?.title || 'Sermon')
+                    : viewTitle(view, currentSermon?.title || 'Sermon')}
               </span>
             </div>
             <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
@@ -679,7 +808,7 @@ export default function Home() {
                         <HomeLanding t={t} onPick={(m, q) => { setMode(m); setQuery(q); setTimeout(() => taRef.current?.focus(), 0) }} />
                       )}
                       {searchResults.map((r, i) => (
-                        <div key={i} style={{ ...card(t), overflow: 'hidden', minWidth: 0 }}>
+                        <div key={i} style={{ borderBottom: `1px solid ${t.border}`, padding: '12px 4px', minWidth: 0 }}>
                           <p style={{ margin: 0, borderLeft: `3px solid ${CTA}`, paddingLeft: 12, fontStyle: 'italic', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
                             "{highlightMatches(r.quote_text, lastSearchQuery, searchMatchType)}"
                           </p>
@@ -689,8 +818,8 @@ export default function Home() {
                               <div style={{ color: t.text2, fontSize: '0.8125em' }}>{r.source_date || (r.source === 'bible' ? 'KJV' : '')}</div>
                             </div>
                             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', minWidth: 0, justifyContent: 'flex-end' }}>
+                              <button type="button" onClick={() => copyText(r.quote_text, i)} style={pillBtn(t)}>{copied === i ? 'Copied' : 'Copy'}</button>
                               <button type="button" onClick={() => { if (!user) return showToast('Sign in to save quotes'); setSaveModal({ text: r.quote_text, title: r.source_title, date: r.source_date }) }} style={pillBtn(t)}>Save</button>
-                              <span style={{ ...pillBtn(t), cursor: 'default' }}>{r.source}</span>
                             </div>
                           </div>
                         </div>
@@ -705,7 +834,12 @@ export default function Home() {
                         <div key={i} style={{ marginBottom: 16 }}>
                           {m.role === 'user' ? (
                             <div style={{ display: 'flex', justifyContent: 'flex-end', minWidth: 0 }}>
-                              <div style={{ maxWidth: 'min(75%, 100%)', background: CTA, color: '#fff', borderRadius: 18, padding: '10px 14px', overflowWrap: 'anywhere', wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{m.content}</div>
+                              <div style={{ maxWidth: 'min(75%, 100%)' }}>
+                                <div style={{ background: CTA, color: '#fff', borderRadius: 18, padding: '10px 14px', overflowWrap: 'anywhere', wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{m.content}</div>
+                                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 6 }}>
+                                  <button type="button" onClick={() => copyText(m.content, i)} style={pillBtn(t)}>{copied === i ? 'Copied' : 'Copy'}</button>
+                                </div>
+                              </div>
                             </div>
                           ) : (
                             <div style={{ display: 'flex', gap: 10, minWidth: 0 }}>
@@ -939,15 +1073,95 @@ export default function Home() {
             <div style={panelWrap}>
               <div style={panelInner}>
                 <h2 style={h2}>Sermon Library</h2>
-                {SERMONS.map(s => (
-                  <button key={s.id} onClick={() => { setCurrentSermon(s); setView('reader') }} style={{ ...card(t), textAlign: 'left', cursor: 'pointer' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                      <strong style={{ color: t.text }}>{s.title}</strong>
-                      <span style={{ color: t.text2, fontSize: 12 }}>{s.date}</span>
+                <div style={{ ...card(t), marginBottom: 12 }}>
+                  <input
+                    value={sermonSearch}
+                    onChange={e => setSermonSearch(e.target.value)}
+                    placeholder="Search by title, topic, location, or date..."
+                    style={inputStyle(t, { marginBottom: 10 })}
+                  />
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
+                    <div style={{ display: 'inline-flex', gap: 4, background: t.bg3, borderRadius: 999, padding: 4 }}>
+                      {([
+                        ['newest', 'Newest first'],
+                        ['oldest', 'Oldest first'],
+                      ] as const).map(([id, label]) => (
+                        <button
+                          key={id}
+                          type="button"
+                          onClick={() => setSermonSort(id)}
+                          style={{
+                            border: 'none',
+                            borderRadius: 999,
+                            padding: '7px 12px',
+                            background: sermonSort === id ? '#86CD82' : 'transparent',
+                            color: sermonSort === id ? '#17351f' : t.text2,
+                            fontWeight: 600,
+                            fontSize: 13,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {label}
+                        </button>
+                      ))}
                     </div>
-                    <p style={{ margin: 0, color: t.text2 }}>{s.preview}</p>
+                    <span style={{ fontSize: 12, color: t.text2 }}>
+                      Showing {sermonTotal.toLocaleString()} of {sermonGrandTotal.toLocaleString()} sermons
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 2 }}>
+                    {(['all', '1947-49', '1950s', '1960s'] as SermonDecade[]).map(d => (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() => setSermonDecade(d)}
+                        style={{ ...pillBtn(t), whiteSpace: 'nowrap', background: sermonDecade === d ? '#86CD82' : t.bg, color: sermonDecade === d ? '#17351f' : t.text2, borderColor: sermonDecade === d ? '#86CD82' : t.border }}
+                      >
+                        {d === 'all' ? 'All' : d}
+                      </button>
+                    ))}
+                    {SERMON_LOCATION_PILLS.map(loc => (
+                      <button
+                        key={loc}
+                        type="button"
+                        onClick={() => setSermonLocation(loc)}
+                        style={{ ...pillBtn(t), whiteSpace: 'nowrap', background: sermonLocation === loc ? '#86CD82' : t.bg, color: sermonLocation === loc ? '#17351f' : t.text2, borderColor: sermonLocation === loc ? '#86CD82' : t.border }}
+                      >
+                        {loc === 'all' ? 'All locations' : loc}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ borderTop: `1px solid ${t.border}` }}>
+                  {sermonRows.map(s => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => { setCurrentSermon(s); setView('reader') }}
+                      style={{ width: '100%', textAlign: 'left', border: 'none', background: 'transparent', padding: '13px 6px', borderBottom: `1px solid ${t.border}`, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}
+                    >
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 700, fontSize: 15, color: t.text, marginBottom: 2, overflowWrap: 'anywhere' }}>{s.title || 'Untitled sermon'}</div>
+                        <div style={{ fontSize: 13, color: t.text2 }}>
+                          {fmtSermonDate(s.date)}{s.location ? ` · ${s.location}` : ''}
+                        </div>
+                        <div style={{ fontSize: 12, color: t.text3, marginTop: 2 }}>{s.reference_code ? `#${s.reference_code}` : ''}</div>
+                      </div>
+                      <span style={{ color: t.text3, fontSize: 18, flexShrink: 0 }}>→</span>
+                    </button>
+                  ))}
+                </div>
+
+                {!sermonLoading && sermonRows.length === 0 && (
+                  <p style={{ color: t.text2, marginTop: 12 }}>No sermons found for those filters.</p>
+                )}
+                {sermonLoading && <p style={{ color: t.text2, marginTop: 12 }}>Loading sermons...</p>}
+                {!sermonLoading && sermonHasMore && (
+                  <button type="button" onClick={() => loadSermons(sermonPage + 1, true)} style={{ ...secondaryBtn(t), marginTop: 12 }}>
+                    Load 50 more
                   </button>
-                ))}
+                )}
               </div>
             </div>
           )}
@@ -955,17 +1169,28 @@ export default function Home() {
           {view === 'reader' && (
             <div style={panelWrap}>
               <div style={panelInner}>
-                <button onClick={() => setView('sermons')} style={flatBtn(CTA)}>← Back to library</button>
-                <h2 style={{ ...h2, marginTop: 8 }}>{currentSermon.title}</h2>
-                <p style={{ color: t.text2, marginBottom: 12 }}>{currentSermon.date} · {currentSermon.location} · #{currentSermon.ref}</p>
-                {SERMON_PARAS.map((p, i) => (
-                  <div key={i} style={card(t)}>
-                    <p style={{ margin: 0 }}>{p}</p>
-                    <div style={{ marginTop: 8 }}>
-                      <button onClick={() => { if (!user) return showToast('Sign in to save quotes'); setSaveModal({ text: p, title: currentSermon.title, date: currentSermon.date }) }} style={pillBtn(t)}>Save quote</button>
-                    </div>
-                  </div>
-                ))}
+                <button type="button" onClick={() => setView('sermons')} style={flatBtn(CTA)}>← Back to library</button>
+                <h2 style={{ ...h2, marginTop: 8 }}>{currentSermon?.title || 'Sermon'}</h2>
+                <p style={{ color: t.text2, marginBottom: 12 }}>
+                  {fmtSermonDate(currentSermon?.date)}{currentSermon?.location ? ` · ${currentSermon.location}` : ''}{currentSermon?.reference_code ? ` · #${currentSermon.reference_code}` : ''}
+                </p>
+                <div style={{ ...card(t), maxHeight: 'calc(100vh - 300px)', overflowY: 'auto', fontFamily: 'var(--font-merriweather), Georgia, serif', lineHeight: 1.9 }}>
+                  <p style={{ margin: 0, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
+                    {currentSermon?.full_text || 'No sermon text available.'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setView('chat')
+                    setMode('chat')
+                    setQuery(`Let us discuss this sermon: ${currentSermon?.title || 'Unknown sermon'}${currentSermon?.reference_code ? ` (#${currentSermon.reference_code})` : ''}.`)
+                    setTimeout(() => taRef.current?.focus(), 0)
+                  }}
+                  style={{ ...primaryBtn(false), marginTop: 12 }}
+                >
+                  Chat about this sermon
+                </button>
               </div>
             </div>
           )}
