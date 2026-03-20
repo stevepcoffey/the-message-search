@@ -13,7 +13,6 @@ type SearchSource = 'both' | 'message' | 'bible'
 type SearchMatchType = 'exact_phrase' | 'all_words'
 type SermonSort = 'newest' | 'oldest'
 type SermonDecade = 'all' | '1947-49' | '1950s' | '1960s'
-type SermonLocation = 'all' | 'Jeffersonville' | 'Chicago' | 'Los Angeles' | 'Phoenix' | 'Others'
 type SermonItem = {
   id: string
   title: string
@@ -72,27 +71,12 @@ const ui = {
 }
 
 const SERMON_PAGE_SIZE = 50
-const SERMON_LOCATION_PILLS: SermonLocation[] = ['all', 'Jeffersonville', 'Chicago', 'Los Angeles', 'Phoenix', 'Others']
 
 function fmtSermonDate(dateStr?: string | null): string {
   if (!dateStr) return 'Unknown date'
   const d = new Date(dateStr)
   if (Number.isNaN(d.getTime())) return dateStr
   return d.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })
-}
-
-function locationContains(location: string | null, key: Exclude<SermonLocation, 'all' | 'Others'>): boolean {
-  return (location || '').toLowerCase().includes(key.toLowerCase())
-}
-
-function isOtherLocation(location: string | null): boolean {
-  if (!location) return false
-  return !(
-    locationContains(location, 'Jeffersonville') ||
-    locationContains(location, 'Chicago') ||
-    locationContains(location, 'Los Angeles') ||
-    locationContains(location, 'Phoenix')
-  )
 }
 
 function HomeLanding({
@@ -205,7 +189,6 @@ export default function Home() {
   const [sermonSearch, setSermonSearch] = useState('')
   const [sermonSort, setSermonSort] = useState<SermonSort>('newest')
   const [sermonDecade, setSermonDecade] = useState<SermonDecade>('all')
-  const [sermonLocation, setSermonLocation] = useState<SermonLocation>('all')
   const [sermonRows, setSermonRows] = useState<SermonItem[]>([])
   const [sermonTotal, setSermonTotal] = useState(0)
   const [sermonGrandTotal, setSermonGrandTotal] = useState(0)
@@ -293,24 +276,12 @@ export default function Home() {
       .select('id,title,date,location,reference_code,full_text,word_count', { count: 'exact' })
 
     if (q) {
-      queryBuilder = queryBuilder.or(`title.ilike.%${q}%,location.ilike.%${q}%,reference_code.ilike.%${q}%`)
+      queryBuilder = queryBuilder.or(`title.ilike.%${q}%,reference_code.ilike.%${q}%`)
     }
 
     if (sermonDecade === '1947-49') queryBuilder = queryBuilder.gte('date', '1947-01-01').lt('date', '1950-01-01')
     if (sermonDecade === '1950s') queryBuilder = queryBuilder.gte('date', '1950-01-01').lt('date', '1960-01-01')
     if (sermonDecade === '1960s') queryBuilder = queryBuilder.gte('date', '1960-01-01').lt('date', '1970-01-01')
-
-    if (sermonLocation !== 'all' && sermonLocation !== 'Others') {
-      queryBuilder = queryBuilder.ilike('location', `%${sermonLocation}%`)
-    }
-    if (sermonLocation === 'Others') {
-      queryBuilder = queryBuilder
-        .not('location', 'is', null)
-        .not('location', 'ilike', '%Jeffersonville%')
-        .not('location', 'ilike', '%Chicago%')
-        .not('location', 'ilike', '%Los Angeles%')
-        .not('location', 'ilike', '%Phoenix%')
-    }
 
     const { data, count, error } = await queryBuilder
       .order('date', { ascending: sermonSort === 'oldest', nullsFirst: false })
@@ -327,13 +298,9 @@ export default function Home() {
       const lq = q.toLowerCase()
       rows = rows.filter(r =>
         (r.title || '').toLowerCase().includes(lq) ||
-        (r.location || '').toLowerCase().includes(lq) ||
         (r.reference_code || '').toLowerCase().includes(lq) ||
         fmtSermonDate(r.date).toLowerCase().includes(lq)
       )
-    }
-    if (sermonLocation === 'Others') {
-      rows = rows.filter(r => isOtherLocation(r.location))
     }
 
     setSermonTotal(count || 0)
@@ -341,7 +308,7 @@ export default function Home() {
     setSermonRows(prev => (append ? [...prev, ...rows] : rows))
     setSermonPage(page)
     setSermonLoading(false)
-  }, [sermonSearch, sermonDecade, sermonLocation, sermonSort, showToast])
+  }, [sermonSearch, sermonDecade, sermonSort, showToast])
 
   const loadSermonGrandTotal = useCallback(async () => {
     const { count } = await supabase.from('sermons').select('id', { count: 'exact', head: true })
@@ -836,9 +803,6 @@ export default function Home() {
                             <div style={{ display: 'flex', justifyContent: 'flex-end', minWidth: 0 }}>
                               <div style={{ maxWidth: 'min(75%, 100%)' }}>
                                 <div style={{ background: CTA, color: '#fff', borderRadius: 18, padding: '10px 14px', overflowWrap: 'anywhere', wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{m.content}</div>
-                                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 6 }}>
-                                  <button type="button" onClick={() => copyText(m.content, i)} style={pillBtn(t)}>{copied === i ? 'Copied' : 'Copy'}</button>
-                                </div>
                               </div>
                             </div>
                           ) : (
@@ -1077,7 +1041,7 @@ export default function Home() {
                   <input
                     value={sermonSearch}
                     onChange={e => setSermonSearch(e.target.value)}
-                    placeholder="Search by title, topic, location, or date..."
+                    placeholder="Search by title, topic, or date..."
                     style={inputStyle(t, { marginBottom: 10 })}
                   />
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
@@ -1118,16 +1082,6 @@ export default function Home() {
                         style={{ ...pillBtn(t), whiteSpace: 'nowrap', background: sermonDecade === d ? '#86CD82' : t.bg, color: sermonDecade === d ? '#17351f' : t.text2, borderColor: sermonDecade === d ? '#86CD82' : t.border }}
                       >
                         {d === 'all' ? 'All' : d}
-                      </button>
-                    ))}
-                    {SERMON_LOCATION_PILLS.map(loc => (
-                      <button
-                        key={loc}
-                        type="button"
-                        onClick={() => setSermonLocation(loc)}
-                        style={{ ...pillBtn(t), whiteSpace: 'nowrap', background: sermonLocation === loc ? '#86CD82' : t.bg, color: sermonLocation === loc ? '#17351f' : t.text2, borderColor: sermonLocation === loc ? '#86CD82' : t.border }}
-                      >
-                        {loc === 'all' ? 'All locations' : loc}
                       </button>
                     ))}
                   </div>
