@@ -50,6 +50,54 @@ function getSermonMeta(sermons: SermonRelation) {
   }
 }
 
+function splitSentences(text: string): string[] {
+  return text
+    .split(/[\n\r]+|(?<=[.!?])\s+/)
+    .map(s => s.trim())
+    .filter(Boolean)
+}
+
+async function suggestSimilarPhrasesFromSermons(query: string): Promise<string[]> {
+  const cleaned = query.trim().toLowerCase()
+  if (!cleaned) return []
+  const tokens = [...new Set(cleaned.split(/\s+/).map(w => w.replace(/[^a-z0-9]/gi, '').trim()).filter(w => w.length >= 3))].slice(0, 5)
+  const seed = tokens[0] || cleaned
+  if (!seed) return []
+
+  const { data } = await supabase
+    .from('sermon_chunks')
+    .select('text')
+    .ilike('text', `%${seed}%`)
+    .limit(140)
+
+  const scored: Array<{ sentence: string; score: number }> = []
+  for (const row of data || []) {
+    const text = String(row?.text || '')
+    if (!text) continue
+    const sentences = splitSentences(text)
+    for (const sentence of sentences) {
+      const lower = sentence.toLowerCase()
+      const hits = tokens.reduce((n, t) => (lower.includes(t) ? n + 1 : n), 0)
+      if (hits === 0) continue
+      if (sentence.length < 24 || sentence.length > 180) continue
+      const cleanedSentence = sentence.replace(/\s+/g, ' ').trim()
+      scored.push({ sentence: cleanedSentence, score: hits * 10 - Math.abs(cleanedSentence.length - 90) * 0.03 })
+    }
+  }
+
+  const seen = new Set<string>()
+  return scored
+    .sort((a, b) => b.score - a.score)
+    .map(x => x.sentence)
+    .filter(s => {
+      const key = s.toLowerCase()
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    .slice(0, 6)
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { query, source, match_type } = await request.json()
@@ -133,7 +181,16 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    return NextResponse.json({ results })
+    if (normalizedMatchType === 'exact_phrase' && results.length === 0) {
+      const recommended = await suggestSimilarPhrasesFromSermons(phraseQuery || normalizedQuery)
+      return NextResponse.json({
+        results,
+        no_results_message: `No relevant search results were found for the exact phrase "${phraseQuery || normalizedQuery}".`,
+        suggested_phrases: recommended,
+      })
+    }
+
+    return NextResponse.json({ results, no_results_message: '', suggested_phrases: [] })
 
   } catch (error) {
     console.error('Search error:', error)

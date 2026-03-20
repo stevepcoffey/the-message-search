@@ -174,6 +174,8 @@ export default function Home() {
   const [lastSearchQuery, setLastSearchQuery] = useState('')
   const [messages, setMessages] = useState<Message[]>([])
   const [searchResults, setSearchResults] = useState<SearchResult[]>([])
+  const [searchNoResultsMessage, setSearchNoResultsMessage] = useState('')
+  const [searchSuggestedPhrases, setSearchSuggestedPhrases] = useState<string[]>([])
   const [history, setHistory] = useState<HistoryItem[]>([])
   const [loading, setLoading] = useState(false)
   const [composerFocused, setComposerFocused] = useState(false)
@@ -494,6 +496,8 @@ export default function Home() {
 
     if (mode === 'search') {
       setSearchResults([])
+      setSearchNoResultsMessage('')
+      setSearchSuggestedPhrases([])
       setLastSearchQuery(q)
       setHistory(prev => [{ id: `${Date.now()}`, text: q, mode: 'search' as const }, ...prev].slice(0, 20))
       try {
@@ -505,8 +509,12 @@ export default function Home() {
         const data = await res.json()
         if (!res.ok) throw new Error(data?.error || 'Search failed')
         setSearchResults(data.results || [])
+        setSearchNoResultsMessage(typeof data?.no_results_message === 'string' ? data.no_results_message : '')
+        setSearchSuggestedPhrases(Array.isArray(data?.suggested_phrases) ? data.suggested_phrases : [])
       } catch (error: any) {
         setSearchResults([])
+        setSearchNoResultsMessage('')
+        setSearchSuggestedPhrases([])
         showToast(error?.message || 'Search failed')
       }
       setLoading(false)
@@ -976,6 +984,33 @@ export default function Home() {
                     <>
                       {!searchResults.length && !loading && (
                         <HomeLanding t={t} onPick={(m, q) => { setMode(m); setQuery(q); setTimeout(() => taRef.current?.focus(), 0) }} />
+                      )}
+                      {!searchResults.length && !loading && (searchNoResultsMessage || searchSuggestedPhrases.length > 0) && (
+                        <div style={{ ...card(t), marginBottom: 12 }}>
+                          {searchNoResultsMessage && (
+                            <p style={{ margin: '0 0 10px', color: t.text2 }}>{searchNoResultsMessage}</p>
+                          )}
+                          {searchSuggestedPhrases.length > 0 && (
+                            <>
+                              <div style={{ fontSize: 12, color: t.text3, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.04em', fontWeight: 700 }}>Similar phrases from sermons</div>
+                              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                {searchSuggestedPhrases.map((phrase, idx) => (
+                                  <button
+                                    key={`${phrase}-${idx}`}
+                                    type="button"
+                                    onClick={() => {
+                                      setQuery(`"${phrase}"`)
+                                      setTimeout(() => taRef.current?.focus(), 0)
+                                    }}
+                                    style={pillBtn(t)}
+                                  >
+                                    "{phrase}"
+                                  </button>
+                                ))}
+                              </div>
+                            </>
+                          )}
+                        </div>
                       )}
                       {showInlineComposer && renderComposer(true)}
                       {searchResults.map((r, i) => (
