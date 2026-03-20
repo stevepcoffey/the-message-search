@@ -58,6 +58,15 @@ function parseRerankScores(raw: string): Map<number, number> {
   return out
 }
 
+function getAnthropicText(content: any): string {
+  if (!Array.isArray(content)) return ''
+  return content
+    .filter((block: any) => block?.type === 'text' && typeof block?.text === 'string')
+    .map((block: any) => block.text)
+    .join('\n')
+    .trim()
+}
+
 function extractReferenceCode(query: string): string | null {
   const m = query.match(/\b\d{2}-\d{4}[A-Z]?\b/i)
   return m ? m[0].toUpperCase() : null
@@ -113,7 +122,7 @@ async function rerankWithClaude(query: string, rows: HybridRow[]): Promise<Hybri
       }],
     })
 
-    const text = ai?.content?.[0]?.type === 'text' ? ai.content[0].text : ''
+    const text = getAnthropicText(ai?.content)
     const scores = parseRerankScores(text)
 
     return [...rows]
@@ -194,7 +203,25 @@ export async function POST(request: NextRequest) {
       } as HybridRow))
     }
 
-    const reranked = usedSpecificSermon ? ranked.slice(0, 20) : await rerankWithClaude(query, ranked)
+    let reranked = usedSpecificSermon ? ranked.slice(0, 20) : await rerankWithClaude(query, ranked)
+
+    if (!reranked.length) {
+      const { data: keywordFallbackRows } = await supabaseServer
+        .from('sermon_chunks')
+        .select('text,sermons(title,date,reference_code)')
+        .ilike('text', `%${query}%`)
+        .limit(20)
+      reranked = (keywordFallbackRows || []).map((row: any) => ({
+        source: 'message',
+        text: toAscii(row?.text || ''),
+        title: toAscii(row?.sermons?.title || 'William Branham Sermon'),
+        date: row?.sermons?.date || '',
+        ref: row?.sermons?.reference_code || '',
+        vector_score: 0,
+        keyword_score: 1,
+        hybrid_score: 1,
+      }))
+    }
 
     const passages = reranked.map((r, idx) =>
       `${idx + 1}. [${r.source.toUpperCase()}] ${r.title}${r.date ? ` (${r.date})` : ''}${r.ref ? ` #${r.ref}` : ''}\n${r.text.slice(0, 950)}`
@@ -225,7 +252,7 @@ ${passages || 'No passages found.'}
       messages: [{ role: 'user', content: toAscii(query) }],
     })
 
-    const response = ai?.content?.[0]?.type === 'text' ? ai.content[0].text : ''
+    const response = getAnthropicText(ai?.content) || 'I could not find enough matching material for that query yet. Please try a more specific wording or sermon reference.'
 
     return NextResponse.json({
       response,
