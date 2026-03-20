@@ -35,6 +35,11 @@ type RetrievalMeta = {
   timings_ms: { total: number; retrieval: number; rerank: number; answer: number }
 }
 
+const STOP_WORDS = new Set([
+  'what', 'is', 'the', 'about', 'a', 'an', 'and', 'or', 'to', 'of', 'in', 'on', 'for', 'with', 'by',
+  'do', 'does', 'did', 'be', 'are', 'was', 'were', 'it', 'this', 'that', 'as', 'at', 'from', 'how',
+])
+
 function toAscii(s: string): string {
   if (!s) return ''
   let o = ''
@@ -75,6 +80,16 @@ function getAnthropicText(content: any): string {
     .trim()
 }
 
+function getMeaningfulTokens(query: string): string[] {
+  return [...new Set(
+    query
+      .toLowerCase()
+      .split(/\s+/)
+      .map(t => t.replace(/[^a-z0-9]/gi, '').trim())
+      .filter(t => t.length >= 3 && !STOP_WORDS.has(t))
+  )]
+}
+
 function buildLocalFallbackAnswer(query: string, rows: HybridRow[]): string {
   if (!rows.length) return 'I need more specific information to answer this accurately.'
   return 'I need more specific information to answer this accurately.'
@@ -99,35 +114,41 @@ function enforceSourceDiversity(rows: HybridRow[], maxPerSermon = 2, maxTotal = 
 async function keywordFallbackRows(query: string): Promise<HybridRow[]> {
   const q = query.trim()
   if (!q) return []
-  const tokens = Array.from(
-    new Set(
-      q
-        .toLowerCase()
-        .split(/\s+/)
-        .map(t => t.replace(/[^a-z0-9]/gi, '').trim())
-        .filter(t => t.length >= 3 && !['what', 'about', 'with', 'from', 'that', 'this', 'have', 'will', 'your', 'they', 'them'].includes(t))
-    )
-  ).slice(0, 10)
+  const tokens = getMeaningfulTokens(q).slice(0, 10)
+  const specificWord = [...tokens].sort((a, b) => b.length - a.length)[0] || q.toLowerCase()
   const keywordSet = new Set([q.toLowerCase(), ...tokens])
   const orClause = tokens.map(t => `text.ilike.%${t}%`).join(',')
 
   let sermonQuery: any = supabaseServer
     .from('sermon_chunks')
     .select('sermon_id,text, sermons(title, date, reference_code)')
-    .order('sermon_id', { ascending: false })
+    .ilike('text', `%${specificWord}%`)
+    .order('id', { ascending: false })
     .limit(120)
-  if (orClause) sermonQuery = sermonQuery.or(orClause)
   const { data: sermonMatches } = await sermonQuery
+
+  let extraSermonMatches: any[] = []
+  if ((sermonMatches || []).length < 15 && orClause) {
+    let extraQuery: any = supabaseServer
+      .from('sermon_chunks')
+      .select('sermon_id,text, sermons(title, date, reference_code)')
+      .order('id', { ascending: false })
+      .limit(120)
+      .or(orClause)
+    const { data } = await extraQuery
+    extraSermonMatches = data || []
+  }
 
   let bibleQuery: any = supabaseServer
     .from('bible_verses')
     .select('book,chapter,verse,text')
+    .ilike('text', `%${specificWord}%`)
+    .order('id', { ascending: false })
     .limit(80)
-  if (orClause) bibleQuery = bibleQuery.or(orClause)
   const { data: bibleMatches } = await bibleQuery
 
   const out: HybridRow[] = []
-  for (const row of sermonMatches || []) {
+  for (const row of [...(sermonMatches || []), ...extraSermonMatches]) {
     const text = toAscii(row?.text || '')
     const lower = text.toLowerCase()
     const matchCount = [...keywordSet].reduce((n, t) => (lower.includes(t) ? n + 1 : n), 0)
@@ -164,7 +185,8 @@ async function keywordFallbackRows(query: string): Promise<HybridRow[]> {
     })
     if (out.length >= 20) break
   }
-  return enforceSourceDiversity(out, 2, 20)
+  const diversified = enforceSourceDiversity(out, 2, 20)
+  return diversified.length >= 15 ? diversified : out.slice(0, 20)
 }
 
 function extractReferenceCode(query: string): string | null {
@@ -218,18 +240,20 @@ async function rerankWithClaude(query: string, rows: HybridRow[]): Promise<Hybri
       system: 'You are a strict relevance rater. Return JSON only.',
       messages: [{
         role: 'user',
-        content: toAscii(`Question: ${query}\n\nRate each candidate 1-10 for relevance to the question.\nReturn ONLY JSON in this form:\n{"scores":[{"idx":1,"score":9.5}, ... ]}\n\nCandidates:\n${docs}`),
+        content: toAscii(`Question: ${query}\n\nScore 1-10 how directly this passage answers the question.\nScore 1 if the passage does not mention the topic at all.\nOnly keep passages scoring 6 or higher.\nReturn ONLY JSON in this form:\n{"scores":[{"idx":1,"score":9.5}, ... ]}\n\nCandidates:\n${docs}`),
       }],
     })
 
     const text = getAnthropicText(ai?.content)
     const scores = parseRerankScores(text)
 
-    return [...rows]
+    const filtered = [...rows]
       .map((row, i) => ({ row, score: scores.get(i + 1) ?? 0, idx: i }))
+      .filter(x => x.score >= 6)
       .sort((a, b) => b.score - a.score || b.row.hybrid_score - a.row.hybrid_score || a.idx - b.idx)
       .slice(0, 8)
       .map(x => x.row)
+    return filtered.length ? filtered : rows.slice(0, 8)
   } catch {
     return rows.slice(0, 8)
   }
@@ -292,12 +316,15 @@ export async function POST(request: NextRequest) {
         const queryEmbedding = embed.data[0]?.embedding
         if (!queryEmbedding) throw new Error('embedding_empty')
 
-        const { data: hybridResults, error: hybridError } = await supabaseServer
-          .rpc('match_documents_hybrid', {
-            query_embedding: queryEmbedding,
-            keyword_query: expandedQuery || query,
-            match_count: 20,
-          })
+        const hybridCall = supabaseServer.rpc('match_documents_hybrid', {
+          query_embedding: queryEmbedding,
+          keyword_query: expandedQuery || query,
+          match_count: 20,
+        })
+        const timeoutCall = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('hybrid_timeout_10s')), 10000)
+        })
+        const { data: hybridResults, error: hybridError } = await Promise.race([hybridCall, timeoutCall]) as any
 
         if (hybridError) throw new Error(hybridError.message || 'hybrid_error')
 
@@ -312,6 +339,15 @@ export async function POST(request: NextRequest) {
           keyword_score: Number(row.keyword_score || 0),
           hybrid_score: Number(row.hybrid_score || 0),
         } as HybridRow))
+        const qTokens = getMeaningfulTokens(query)
+        if (qTokens.length) {
+          ranked = ranked.map(r => {
+            const hay = `${r.title} ${r.ref}`.toLowerCase()
+            const boostHits = qTokens.reduce((n, t) => (hay.includes(t) ? n + 1 : n), 0)
+            if (!boostHits) return r
+            return { ...r, hybrid_score: r.hybrid_score + boostHits * 0.35, keyword_score: r.keyword_score + boostHits * 0.15 }
+          }).sort((a, b) => b.hybrid_score - a.hybrid_score)
+        }
         retrievalPath = 'hybrid'
         if (!ranked.length) {
           retrievalReason = 'hybrid_empty'
