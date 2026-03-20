@@ -66,6 +66,17 @@ const LANDING_EXAMPLES: { mode: 'chat' | 'search'; label: string; q: string }[] 
   { mode: 'search', label: 'Exact phrase', q: '"born again"' },
 ]
 
+const RELATED_QUERY_TERMS: Record<string, string[]> = {
+  'holy spirit': ['Holy Ghost', 'Godhead', 'Spirit of God', 'baptism of the Holy Ghost'],
+  'holy ghost': ['Holy Spirit', 'Godhead', 'Spirit baptism'],
+  faith: ['believe', 'unbelief', 'trust', 'revelation faith'],
+  healing: ['divine healing', 'miracle', 'sick', 'prayer of faith'],
+  grace: ['mercy', 'favor', 'salvation'],
+  repentance: ['repent', 'turn from sin', 'confession'],
+  baptism: ['water baptism', 'Jesus Name', 'remission of sins'],
+  godhead: ['Father Son Holy Ghost', 'Oneness', 'deity of Christ'],
+}
+
 const COLORS = ['#A0EEC0', '#72A276', '#525252', '#404040', '#262626', '#000000']
 
 const ui = {
@@ -637,21 +648,43 @@ export default function Home() {
   const bibleSearchResults = useMemo(() => sortedSearchResults.filter(r => r.source === 'bible'), [sortedSearchResults])
 
   const topRelevantTerms = useMemo(() => {
-    if (!searchResults.length) return [] as string[]
+    const q = (lastSearchQuery || '').toLowerCase().trim()
+    if (!q) return [] as string[]
+
+    const direct: string[] = []
+    for (const [k, vals] of Object.entries(RELATED_QUERY_TERMS)) {
+      if (q.includes(k)) direct.push(...vals)
+    }
+
+    const seen = new Set<string>(q.split(/[^a-z0-9]+/g).filter(Boolean))
+    const out: string[] = []
+    for (const term of direct) {
+      const norm = term.toLowerCase()
+      if (seen.has(norm)) continue
+      seen.add(norm)
+      out.push(term)
+      if (out.length >= 8) return out
+    }
+
+    // Fallback to lightweight relevance extraction from results when no mapped terms hit.
+    if (!searchResults.length) return out
     const queryTerms = new Set(getSearchHighlightTerms(lastSearchQuery, searchMatchType).map(t => t.toLowerCase()))
     const stop = new Set(['the', 'and', 'for', 'with', 'that', 'this', 'from', 'what', 'when', 'where', 'about', 'into', 'have', 'were', 'will', 'shall', 'unto', 'your', 'you', 'his', 'her', 'their'])
     const counts = new Map<string, number>()
-    for (const r of searchResults.slice(0, 40)) {
+    for (const r of searchResults.slice(0, 50)) {
       const words = `${r.quote_text} ${r.source_title}`.toLowerCase().split(/[^a-z0-9]+/g)
       for (const w of words) {
         if (!w || w.length < 4 || stop.has(w) || queryTerms.has(w)) continue
         counts.set(w, (counts.get(w) || 0) + 1)
       }
     }
-    return [...counts.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 8)
-      .map(([w]) => w)
+    for (const [w] of [...counts.entries()].sort((a, b) => b[1] - a[1])) {
+      if (out.length >= 8) break
+      if (seen.has(w)) continue
+      seen.add(w)
+      out.push(w)
+    }
+    return out
   }, [searchResults, lastSearchQuery, searchMatchType])
 
   const copyText = (text: string, i: number) => {
@@ -1263,7 +1296,7 @@ export default function Home() {
           {view === 'chat' && (
             <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
               <div ref={scrollAreaRef} style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', padding: '18px 18px 0', WebkitOverflowScrolling: 'touch' }}>
-                <div style={{ maxWidth: 760, margin: '0 auto', minWidth: 0 }}>
+                <div style={{ maxWidth: mode === 'search' ? 1320 : 760, margin: '0 auto', minWidth: 0, width: '100%' }}>
                   {mode === 'search' ? (
                     <>
                       {!searchResults.length && !loading && (
@@ -1325,7 +1358,7 @@ export default function Home() {
                             </div>
                             {topRelevantTerms.length > 0 && (
                               <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                                <span style={{ fontSize: 11, letterSpacing: '0.04em', textTransform: 'uppercase', color: t.text3, fontWeight: 700 }}>Top terms</span>
+                                <span style={{ fontSize: 11, letterSpacing: '0.04em', textTransform: 'uppercase', color: t.text3, fontWeight: 700 }}>Other relevant terms</span>
                                 {topRelevantTerms.map(term => (
                                   <button
                                     key={term}
@@ -1341,14 +1374,14 @@ export default function Home() {
                           </div>
                         </div>
                       )}
-                      {searchSource === 'both' ? (
+                      {sortedSearchResults.length > 0 && searchSource === 'both' ? (
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12, alignItems: 'start' }}>
                           <div>
                             <div style={{ ...card(t), marginBottom: 10, padding: '10px 12px' }}>
                               <span style={{ fontSize: 11, letterSpacing: '0.04em', textTransform: 'uppercase', color: t.text3, fontWeight: 700 }}>Message ({messageSearchResults.length})</span>
                             </div>
                             {messageSearchResults.map((r, i) => (
-                              <div key={`m-${i}`} style={{ ...card(t), marginBottom: 12, minWidth: 0, padding: 'clamp(14px, 2.3vw, 20px)' }}>
+                              <div key={`m-${r.source_title}-${r.source_date}-${r.quote_text.slice(0, 40)}-${i}`} style={{ ...card(t), marginBottom: 12, minWidth: 0, padding: 'clamp(14px, 2.3vw, 20px)' }}>
                                 <p style={{ margin: 0, borderLeft: `3px solid ${CTA}`, paddingLeft: 'clamp(12px, 1.8vw, 18px)', paddingRight: 'clamp(2px, 0.8vw, 8px)', lineHeight: 1.7, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
                                   "{highlightMatches(r.quote_text, lastSearchQuery, searchMatchType)}"
                                 </p>
@@ -1377,7 +1410,7 @@ export default function Home() {
                               <span style={{ fontSize: 11, letterSpacing: '0.04em', textTransform: 'uppercase', color: t.text3, fontWeight: 700 }}>Bible ({bibleSearchResults.length})</span>
                             </div>
                             {bibleSearchResults.map((r, i) => (
-                              <div key={`b-${i}`} style={{ ...card(t), marginBottom: 12, minWidth: 0, padding: 'clamp(14px, 2.3vw, 20px)' }}>
+                              <div key={`b-${r.source_title}-${r.quote_text.slice(0, 40)}-${i}`} style={{ ...card(t), marginBottom: 12, minWidth: 0, padding: 'clamp(14px, 2.3vw, 20px)' }}>
                                 <p style={{ margin: 0, borderLeft: `3px solid ${CTA}`, paddingLeft: 'clamp(12px, 1.8vw, 18px)', paddingRight: 'clamp(2px, 0.8vw, 8px)', lineHeight: 1.7, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
                                   "{highlightMatches(r.quote_text, lastSearchQuery, searchMatchType)}"
                                 </p>
@@ -1395,9 +1428,9 @@ export default function Home() {
                             ))}
                           </div>
                         </div>
-                      ) : (
+                      ) : sortedSearchResults.length > 0 ? (
                         sortedSearchResults.map((r, i) => (
-                          <div key={i} style={{ ...card(t), marginBottom: 12, minWidth: 0, padding: 'clamp(14px, 2.3vw, 20px)' }}>
+                          <div key={`${r.source_title}-${r.source_date}-${r.quote_text.slice(0, 40)}-${i}`} style={{ ...card(t), marginBottom: 12, minWidth: 0, padding: 'clamp(14px, 2.3vw, 20px)' }}>
                             <p style={{ margin: 0, borderLeft: `3px solid ${CTA}`, paddingLeft: 'clamp(12px, 1.8vw, 18px)', paddingRight: 'clamp(2px, 0.8vw, 8px)', lineHeight: 1.7, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
                               "{highlightMatches(r.quote_text, lastSearchQuery, searchMatchType)}"
                             </p>
@@ -1422,7 +1455,7 @@ export default function Home() {
                             </div>
                           </div>
                         ))
-                      )}
+                      ) : null}
                     </>
                   ) : (
                     <>
