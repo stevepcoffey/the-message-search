@@ -38,14 +38,14 @@ const COLORS = ['#A0EEC0', '#72A276', '#525252', '#404040', '#262626', '#000000'
 
 const ui = {
   light: {
-    bg: '#FFFFFF',
-    bg2: '#F4F4F5',
-    bg3: '#E4E4E7',
+    bg: '#F3F3F0',
+    bg2: '#E7E7E3',
+    bg3: '#D6D6D1',
     text: '#000000',
-    text2: '#3F3F46',
-    text3: '#71717A',
-    border: 'rgba(0,0,0,0.1)',
-    shadow: '0 1px 3px rgba(0,0,0,0.06)',
+    text2: '#353539',
+    text3: '#66666E',
+    border: 'rgba(0,0,0,0.13)',
+    shadow: '0 1px 3px rgba(0,0,0,0.07)',
   },
   dark: {
     bg: '#0C0C0E',
