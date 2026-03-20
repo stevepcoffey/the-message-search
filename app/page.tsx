@@ -12,12 +12,35 @@ type SearchSource = 'both' | 'message' | 'bible'
 type View = 'chat' | 'sermons' | 'reader' | 'bookmarks' | 'bible' | 'settings'
 type HistoryItem = { id: string; text: string; mode: 'chat' | 'search' }
 
-const ACCENT = '#86CD82'
-const COLORS = ['#A0EEC0', '#8AE9C1', '#86CD82', '#72A276', '#666B6A', '#000000']
+/** Primary actions / filled buttons */
+const CTA = '#72A276'
+/** Light mint — highlights, dark-mode titles, subtle accents */
+const MINT = '#A0EEC0'
+const CTA_MUTED_BG = 'rgba(114, 162, 118, 0.18)'
+
+const COLORS = ['#A0EEC0', '#72A276', '#525252', '#404040', '#262626', '#000000']
 
 const ui = {
-  light: { bg: '#FFFFFF', bg2: '#F5F5F7', bg3: '#ECECEF', text: '#000000', text2: '#4A4A4A', text3: '#7A7A7A', border: 'rgba(0,0,0,0.08)', shadow: '0 1px 3px rgba(0,0,0,0.08)' },
-  dark: { bg: '#1C1C1E', bg2: '#2C2C2E', bg3: '#2F2F31', text: '#FFFFFF', text2: 'rgba(255,255,255,0.75)', text3: 'rgba(255,255,255,0.55)', border: 'rgba(255,255,255,0.06)', shadow: 'none' },
+  light: {
+    bg: '#FFFFFF',
+    bg2: '#F4F4F5',
+    bg3: '#E4E4E7',
+    text: '#000000',
+    text2: '#3F3F46',
+    text3: '#71717A',
+    border: 'rgba(0,0,0,0.1)',
+    shadow: '0 1px 3px rgba(0,0,0,0.06)',
+  },
+  dark: {
+    bg: '#0C0C0E',
+    bg2: '#18181B',
+    bg3: '#27272A',
+    text: '#FFFFFF',
+    text2: 'rgba(255,255,255,0.78)',
+    text3: 'rgba(255,255,255,0.52)',
+    border: 'rgba(255,255,255,0.08)',
+    shadow: 'none',
+  },
 }
 
 const SERMONS = [
@@ -76,8 +99,9 @@ export default function Home() {
 
   const taRef = useRef<HTMLTextAreaElement>(null)
   const endRef = useRef<HTMLDivElement>(null)
+  const scrollAreaRef = useRef<HTMLDivElement>(null)
   const t = darkMode ? ui.dark : ui.light
-  const headingTone = darkMode ? '#D7F5D6' : '#1F1F1F'
+  const headingTone = darkMode ? MINT : '#27272A'
 
   useEffect(() => {
     const saved = window.localStorage.getItem('apple-dark-mode')
@@ -109,8 +133,16 @@ export default function Home() {
   }, [query])
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, searchResults, loading])
+    if (mode === 'search') {
+      scrollAreaRef.current?.scrollTo({ top: 0, behavior: searchResults.length ? 'smooth' : 'auto' })
+    }
+  }, [searchResults, mode])
+
+  useEffect(() => {
+    if (mode === 'chat') {
+      endRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [messages, loading, mode])
 
   const showToast = (msg: string) => {
     setToast(msg)
@@ -222,6 +254,7 @@ export default function Home() {
     setLoading(true)
 
     if (mode === 'search') {
+      setSearchResults([])
       setHistory(prev => [{ id: `${Date.now()}`, text: q, mode: 'search' as const }, ...prev].slice(0, 20))
       try {
         const res = await fetch('/api/search', {
@@ -258,15 +291,15 @@ export default function Home() {
   if (authMode) {
     return (
       <div style={{ minHeight: '100vh', background: t.bg, color: t.text, display: 'grid', placeItems: 'center', fontFamily: fontStack, fontSize, fontWeight: 500, lineHeight: 1.7 }}>
-        <div style={{ width: 400, background: t.bg2, border: `1px solid ${t.border}`, borderRadius: 16, padding: 24, boxShadow: t.shadow }}>
-          <h2 style={{ fontSize: 18, fontWeight: 600, marginBottom: 6 }}>{authMode === 'login' ? 'Sign in' : 'Create account'}</h2>
-          <p style={{ color: t.text2, marginBottom: 12 }}>Access folders, bookmarks, and history.</p>
+        <div style={{ width: 'min(400px, calc(100vw - 32px))', maxWidth: '100%', boxSizing: 'border-box', background: t.bg2, border: `1px solid ${t.border}`, borderRadius: 16, padding: 24, boxShadow: t.shadow }}>
+          <h2 style={{ fontSize: '1.125em', fontWeight: 600, marginBottom: 6, overflowWrap: 'anywhere' }}>{authMode === 'login' ? 'Sign in' : 'Create account'}</h2>
+          <p style={{ color: t.text2, marginBottom: 12, fontSize: '0.9375em' }}>Access folders, bookmarks, and history.</p>
           <input value={email} onChange={e => setEmail(e.target.value)} type="email" placeholder="Email" style={inputStyle(t)} />
           <input value={password} onChange={e => setPassword(e.target.value)} type="password" placeholder="Password" onKeyDown={e => e.key === 'Enter' && (authMode === 'login' ? signIn() : signUp())} style={inputStyle(t, { marginTop: 8 })} />
           {authError && <p style={{ color: '#ff6b6b', fontSize: 13, marginTop: 8 }}>{authError}</p>}
           <button onClick={authMode === 'login' ? signIn : signUp} style={primaryBtn()}>{authLoading ? 'Please wait...' : authMode === 'login' ? 'Sign in' : 'Create account'}</button>
           <div style={{ marginTop: 10, display: 'flex', justifyContent: 'space-between' }}>
-            <button onClick={() => setAuthMode(authMode === 'login' ? 'signup' : 'login')} style={flatBtn(ACCENT)}>{authMode === 'login' ? 'Create account' : 'Sign in instead'}</button>
+            <button onClick={() => setAuthMode(authMode === 'login' ? 'signup' : 'login')} style={flatBtn(CTA)}>{authMode === 'login' ? 'Create account' : 'Sign in instead'}</button>
             <button onClick={() => setAuthMode(null)} style={flatBtn(t.text2)}>Cancel</button>
           </div>
         </div>
@@ -280,9 +313,9 @@ export default function Home() {
 
       {saveModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', zIndex: 180, display: 'grid', placeItems: 'center' }}>
-          <div style={{ width: 430, background: t.bg2, border: `1px solid ${t.border}`, borderRadius: 16, padding: 18, boxShadow: t.shadow }}>
-            <h3 style={{ fontSize: 18, fontWeight: 600, marginBottom: 8 }}>Save Quote</h3>
-            <p style={{ borderLeft: `3px solid ${ACCENT}`, paddingLeft: 10, fontStyle: 'italic', marginBottom: 12 }}>"{saveModal.text.slice(0, 220)}{saveModal.text.length > 220 ? '...' : ''}"</p>
+          <div style={{ width: 'min(430px, calc(100vw - 32px))', maxWidth: '100%', boxSizing: 'border-box', background: t.bg2, border: `1px solid ${t.border}`, borderRadius: 16, padding: 18, boxShadow: t.shadow }}>
+            <h3 style={{ fontSize: '1.125em', fontWeight: 600, marginBottom: 8, overflowWrap: 'anywhere' }}>Save Quote</h3>
+            <p style={{ borderLeft: `3px solid ${CTA}`, paddingLeft: 10, fontStyle: 'italic', marginBottom: 12 }}>"{saveModal.text.slice(0, 220)}{saveModal.text.length > 220 ? '...' : ''}"</p>
             {folders.length > 0 && (
               <>
                 <p style={{ fontSize: 12, color: t.text2, marginBottom: 6 }}>Folder (optional)</p>
@@ -303,33 +336,34 @@ export default function Home() {
 
       <div style={{ display: 'flex', minHeight: '100vh' }}>
         <aside style={{ width: sidebarOpen ? 245 : 0, minWidth: sidebarOpen ? 245 : 0, overflow: 'hidden', transition: 'all 0.15s ease', background: t.bg2, borderRight: `1px solid ${t.border}` }}>
-          <div style={{ width: 245, height: '100vh', display: 'flex', flexDirection: 'column', padding: 10 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 4px 10px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <div style={{ width: 30, height: 30, borderRadius: 10, background: ACCENT, color: '#fff', display: 'grid', placeItems: 'center' }}>
-                  <svg width="14" height="14" viewBox="0 0 20 20" fill="none"><path d="M10 2L3 5.5V10c0 4.1 3 7.7 7 8.5 4-.8 7-4.4 7-8.5V5.5L10 2z" stroke="white" strokeWidth="1.5" strokeLinejoin="round"/><path d="M7 10l2 2 4-4" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                </div>
-                <strong style={{ fontSize: 14 }}>Message</strong>
+          <div style={{ width: 245, height: '100vh', display: 'flex', flexDirection: 'column', padding: 10, minHeight: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 4px 10px', flexShrink: 0 }}>
+              <div style={{ width: 44, height: 44, borderRadius: 12, background: CTA, color: '#fff', display: 'grid', placeItems: 'center', flexShrink: 0 }} aria-label="App logo">
+                <svg width="22" height="22" viewBox="0 0 20 20" fill="none"><path d="M10 2L3 5.5V10c0 4.1 3 7.7 7 8.5 4-.8 7-4.4 7-8.5V5.5L10 2z" stroke="white" strokeWidth="1.5" strokeLinejoin="round"/><path d="M7 10l2 2 4-4" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
               </div>
-              <button onClick={() => setSidebarOpen(false)} style={iconBtn(t)}>✕</button>
+              <button type="button" onClick={() => setSidebarOpen(false)} style={iconBtn(t)} aria-label="Close sidebar">✕</button>
             </div>
 
-            <button onClick={() => { setView('chat'); setMode('chat'); setMessages([]); setSearchResults([]) }} style={{ ...primaryBtn(false), width: '100%', marginBottom: 8, background: '#111111', color: '#ffffff' }}>+ New search</button>
+            <button type="button" onClick={() => { setView('chat'); setMode('chat'); setMessages([]); setSearchResults([]) }} style={{ ...primaryBtn(false), width: '100%', marginBottom: 8, flexShrink: 0 }}>+ New search</button>
 
             {[
               ['chat', 'Chat'],
               ['sermons', 'Sermon Library'],
-              ['bookmarks', 'Saved Quotes'],
-              ['bible', 'Bible (KJV)'],
-              ['settings', 'Settings'],
+              ['bible', 'Bible'],
             ].map(([id, label]) => (
-              <button key={id} onClick={() => setView(id as View)} style={{ ...navBtn(t, view === id), marginBottom: 2, ...(id === 'chat' && view === 'chat' ? { background: '#111111', color: '#ffffff' } : {}) }}>{label}</button>
+              <button type="button" key={id} onClick={() => setView(id as View)} style={{ ...navBtn(t, view === id), marginBottom: 2, flexShrink: 0, ...(id === 'chat' && view === 'chat' ? { background: CTA, color: '#ffffff' } : {}) }}>{label}</button>
             ))}
 
-            <div style={{ marginTop: 10, borderTop: `1px solid ${t.border}`, paddingTop: 8, flex: 1, overflowY: 'auto' }}>
+            <div style={{ marginTop: 10, borderTop: `1px solid ${t.border}`, paddingTop: 8, flex: 1, minHeight: 0, overflowY: 'auto' }}>
               <div style={{ fontSize: 10.5, color: t.text3, textTransform: 'uppercase', letterSpacing: '0.07em', padding: '0 6px 4px' }}>Folders</div>
+              {user && (
+                <button type="button" onClick={() => { setView('bookmarks'); setActiveFolder(null) }} style={{ ...folderRowBtn(t), marginBottom: 4 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: 999, background: t.text3, opacity: 0.5 }} />
+                  <span style={{ flex: 1, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>All saved quotes</span>
+                </button>
+              )}
               {folders.length === 0 ? (
-                <p style={{ color: t.text2, fontSize: 12, padding: '0 6px' }}>No folders yet</p>
+                <p style={{ color: t.text2, fontSize: '0.8125em', padding: '0 6px' }}>No folders yet</p>
               ) : folders.map(f => (
                 <button key={f.id} onClick={() => { setView('bookmarks'); setActiveFolder(f) }} style={{ ...folderRowBtn(t) }}>
                   <span style={{ width: 8, height: 8, borderRadius: 999, background: f.color }} />
@@ -352,13 +386,17 @@ export default function Home() {
                   style={{ ...folderRowBtn(t), padding: '7px 8px' }}
                   title={item.text}
                 >
-                  <span style={{ width: 7, height: 7, borderRadius: 999, background: item.mode === 'chat' ? ACCENT : t.text3 }} />
+                  <span style={{ width: 7, height: 7, borderRadius: 999, background: item.mode === 'chat' ? CTA : t.text3 }} />
                   <span style={{ flex: 1, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.text}</span>
                 </button>
               ))}
             </div>
 
-            <div style={{ borderTop: `1px solid ${t.border}`, paddingTop: 8 }}>
+            <div style={{ marginTop: 'auto', flexShrink: 0, borderTop: `1px solid ${t.border}`, paddingTop: 8 }}>
+              <button type="button" onClick={() => setView('settings')} style={{ ...navBtn(t, view === 'settings'), width: '100%', marginBottom: 8 }}>Settings</button>
+            </div>
+
+            <div style={{ borderTop: `1px solid ${t.border}`, paddingTop: 8, flexShrink: 0 }}>
               {!user ? (
                 <>
                   <p style={{ fontSize: 12, color: t.text2, marginBottom: 8 }}>Sign in to save quotes and folders.</p>
@@ -374,11 +412,11 @@ export default function Home() {
           </div>
         </aside>
 
-        <main style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+        <main style={{ flex: 1, minWidth: 0, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
           <header style={{ height: 52, borderBottom: `1px solid ${t.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 14px', background: t.bg }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               {!sidebarOpen && <button onClick={() => setSidebarOpen(true)} style={iconBtn(t)}>☰</button>}
-              <span style={{ fontSize: 13, color: t.text2 }}>{viewTitle(view, currentSermon.title)}</span>
+              <span style={{ fontSize: '0.875em', color: t.text2, overflowWrap: 'anywhere' }}>{viewTitle(view, currentSermon.title)}</span>
             </div>
             <div style={{ display: 'flex', gap: 6 }}>
               <button onClick={() => setFontSize(v => Math.max(14, v - 1))} style={iconBtn(t)}>A-</button>
@@ -388,22 +426,22 @@ export default function Home() {
           </header>
 
           {view === 'chat' && (
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-              <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '18px 18px 0' }}>
-                <div style={{ maxWidth: 760, margin: '0 auto' }}>
+            <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+              <div ref={scrollAreaRef} style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', padding: '18px 18px 0', WebkitOverflowScrolling: 'touch' }}>
+                <div style={{ maxWidth: 760, margin: '0 auto', minWidth: 0 }}>
                   {mode === 'search' ? (
                     <>
                       {!searchResults.length && !loading && <div style={emptyCard(t)}><h1 style={h1}>Search the Message & Bible</h1><p style={{ color: t.text2 }}>Exact raw passages from sermons and KJV Bible.</p></div>}
                       {searchResults.map((r, i) => (
-                        <div key={i} style={{ ...card(t), overflow: 'hidden' }}>
-                          <p style={{ margin: 0, borderLeft: `3px solid ${ACCENT}`, paddingLeft: 12, fontStyle: 'italic', overflowWrap: 'anywhere' }}>"{r.quote_text}"</p>
-                          <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                            <div>
-                              <div style={{ fontWeight: 600, color: headingTone, fontSize: 13 }}>{r.source_title || (r.source === 'bible' ? 'KJV Bible' : 'William Branham Sermon')}</div>
-                              <div style={{ color: t.text2, fontSize: 12 }}>{r.source_date || (r.source === 'bible' ? 'KJV' : '')}</div>
+                        <div key={i} style={{ ...card(t), overflow: 'hidden', minWidth: 0 }}>
+                          <p style={{ margin: 0, borderLeft: `3px solid ${CTA}`, paddingLeft: 12, fontStyle: 'italic', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>"{r.quote_text}"</p>
+                          <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', flexWrap: 'wrap', minWidth: 0 }}>
+                            <div style={{ minWidth: 0, flex: '1 1 140px' }}>
+                              <div style={{ fontWeight: 600, color: headingTone, fontSize: '0.875em', overflowWrap: 'anywhere' }}>{r.source_title || (r.source === 'bible' ? 'KJV Bible' : 'William Branham Sermon')}</div>
+                              <div style={{ color: t.text2, fontSize: '0.8125em' }}>{r.source_date || (r.source === 'bible' ? 'KJV' : '')}</div>
                             </div>
-                            <div style={{ display: 'flex', gap: 6 }}>
-                              <button onClick={() => { if (!user) return showToast('Sign in to save quotes'); setSaveModal({ text: r.quote_text, title: r.source_title, date: r.source_date }) }} style={pillBtn(t)}>Save</button>
+                            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', minWidth: 0, justifyContent: 'flex-end' }}>
+                              <button type="button" onClick={() => { if (!user) return showToast('Sign in to save quotes'); setSaveModal({ text: r.quote_text, title: r.source_title, date: r.source_date }) }} style={pillBtn(t)}>Save</button>
                               <span style={{ ...pillBtn(t), cursor: 'default' }}>{r.source}</span>
                             </div>
                           </div>
@@ -416,24 +454,24 @@ export default function Home() {
                       {messages.map((m, i) => (
                         <div key={i} style={{ marginBottom: 16 }}>
                           {m.role === 'user' ? (
-                            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                              <div style={{ maxWidth: '75%', background: ACCENT, color: '#fff', borderRadius: 18, padding: '10px 14px' }}>{m.content}</div>
+                            <div style={{ display: 'flex', justifyContent: 'flex-end', minWidth: 0 }}>
+                              <div style={{ maxWidth: 'min(75%, 100%)', background: CTA, color: '#fff', borderRadius: 18, padding: '10px 14px', overflowWrap: 'anywhere', wordBreak: 'break-word', whiteSpace: 'pre-wrap' }}>{m.content}</div>
                             </div>
                           ) : (
-                            <div style={{ display: 'flex', gap: 10 }}>
-                              <div style={{ width: 28, height: 28, borderRadius: 10, border: `1px solid ${t.border}`, background: t.bg3, display: 'grid', placeItems: 'center' }}>
-                                <svg width="12" height="12" viewBox="0 0 20 20" fill="none"><path d="M10 2L3 5.5V10c0 4.1 3 7.7 7 8.5 4-.8 7-4.4 7-8.5V5.5L10 2z" stroke={ACCENT} strokeWidth="1.5" strokeLinejoin="round"/></svg>
+                            <div style={{ display: 'flex', gap: 10, minWidth: 0 }}>
+                              <div style={{ width: 28, height: 28, borderRadius: 10, border: `1px solid ${t.border}`, background: t.bg3, display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+                                <svg width="12" height="12" viewBox="0 0 20 20" fill="none"><path d="M10 2L3 5.5V10c0 4.1 3 7.7 7 8.5 4-.8 7-4.4 7-8.5V5.5L10 2z" stroke={CTA} strokeWidth="1.5" strokeLinejoin="round"/></svg>
                               </div>
-                              <div style={{ flex: 1, background: t.bg2, borderRadius: 14, border: `1px solid ${t.border}`, padding: '10px 12px', overflow: 'hidden' }}>
+                              <div style={{ flex: 1, minWidth: 0, background: t.bg2, borderRadius: 14, border: `1px solid ${t.border}`, padding: '10px 12px', overflow: 'hidden' }}>
                                 <ReactMarkdown components={{
-                                  p: ({ children }) => <p style={{ margin: '0 0 8px' }}>{children}</p>,
-                                  h2: ({ children }) => <h2 style={h2}>{children}</h2>,
-                                  h3: ({ children }) => <h3 style={{ ...h2, fontSize: 16 }}>{children}</h3>,
+                                  p: ({ children }) => <p style={{ margin: '0 0 8px', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{children}</p>,
+                                  h2: ({ children }) => <h2 style={{ ...h2, marginTop: 12 }}>{children}</h2>,
+                                  h3: ({ children }) => <h3 style={{ ...h2, fontSize: '1.05em', marginTop: 10 }}>{children}</h3>,
                                   blockquote: ({ children }) => {
                                     const quoteText = getPlainTextFromNode(children).trim()
                                     return (
                                       <div style={{ position: 'relative', margin: '9px 0' }}>
-                                        <blockquote style={{ margin: 0, borderLeft: `3px solid ${ACCENT}`, paddingLeft: 12, paddingRight: 34, fontStyle: 'italic' }}>{children}</blockquote>
+                                        <blockquote style={{ margin: 0, borderLeft: `3px solid ${CTA}`, paddingLeft: 12, paddingRight: 34, fontStyle: 'italic', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{children}</blockquote>
                                         <button onClick={() => { if (!user) return showToast('Sign in to save quotes'); if (!quoteText) return; setSaveModal({ text: quoteText, title: m.sources?.[0]?.title || 'William Branham Sermon', date: m.sources?.[0]?.date || '' }) }} style={{ ...pillBtn(t), position: 'absolute', top: -1, right: 0, width: 28, height: 28, padding: 0, display: 'grid', placeItems: 'center' }}>
                                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="m19 21-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
                                         </button>
@@ -443,19 +481,19 @@ export default function Home() {
                                 }}>{m.content || ''}</ReactMarkdown>
 
                                 {m.sources && m.sources.length > 0 && (
-                                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+                                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8, minWidth: 0 }}>
                                     {m.sources.map((s: any, idx: number) => (
-                                      <div key={idx} style={{ background: t.bg3, border: `1px solid ${t.border}`, borderRadius: 12, padding: '8px 10px', minWidth: 150, maxWidth: '100%' }}>
-                                        <div style={{ fontSize: 12.5, fontWeight: 600, color: headingTone, overflowWrap: 'anywhere' }}>{s.title || 'William Branham Sermon'}</div>
-                                        <div style={{ fontSize: 11.5, color: t.text2 }}>{s.date || ''}{s.ref ? ` · #${s.ref}` : ''}</div>
+                                      <div key={idx} style={{ background: t.bg3, border: `1px solid ${t.border}`, borderRadius: 12, padding: '8px 10px', minWidth: 0, maxWidth: '100%', flex: '1 1 140px' }}>
+                                        <div style={{ fontSize: '0.875em', fontWeight: 600, color: headingTone, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{s.title || 'William Branham Sermon'}</div>
+                                        <div style={{ fontSize: '0.8125em', color: t.text2, overflowWrap: 'anywhere' }}>{s.date || ''}{s.ref ? ` · #${s.ref}` : ''}</div>
                                       </div>
                                     ))}
                                   </div>
                                 )}
 
-                                <div style={{ display: 'flex', gap: 6, marginTop: 9 }}>
-                                  <button onClick={() => copyText(m.content, i)} style={pillBtn(t)}>{copied === i ? 'Copied' : 'Copy'}</button>
-                                  <button onClick={() => { if (!user) return showToast('Sign in to save quotes'); setSaveModal({ text: extractSavableQuote(m.content || ''), title: m.sources?.[0]?.title || 'William Branham Sermon', date: m.sources?.[0]?.date || '' }) }} style={pillBtn(t)}>Save</button>
+                                <div style={{ display: 'flex', gap: 6, marginTop: 9, flexWrap: 'wrap', minWidth: 0 }}>
+                                  <button type="button" onClick={() => copyText(m.content, i)} style={pillBtn(t)}>{copied === i ? 'Copied' : 'Copy'}</button>
+                                  <button type="button" onClick={() => { if (!user) return showToast('Sign in to save quotes'); setSaveModal({ text: extractSavableQuote(m.content || ''), title: m.sources?.[0]?.title || 'William Branham Sermon', date: m.sources?.[0]?.date || '' }) }} style={pillBtn(t)}>Save</button>
                                 </div>
                               </div>
                             </div>
@@ -464,23 +502,23 @@ export default function Home() {
                       ))}
                     </>
                   )}
-                  {loading && <p style={{ color: t.text2, fontSize: 13 }}>Loading...</p>}
-                  <div ref={endRef} />
+                  {loading && <p style={{ color: t.text2, fontSize: '0.875em' }}>Loading...</p>}
+                  {mode === 'chat' && <div ref={endRef} />}
                 </div>
               </div>
 
-              <div style={{ borderTop: `1px solid ${t.border}`, padding: '10px 14px 14px' }}>
-                <div style={{ maxWidth: 760, margin: '0 auto' }}>
+              <div style={{ flexShrink: 0, borderTop: `1px solid ${t.border}`, padding: '10px 14px 14px', background: t.bg }}>
+                <div style={{ maxWidth: 760, margin: '0 auto', minWidth: 0 }}>
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
-                    <div style={{ display: 'inline-flex', gap: 2, background: t.bg3, borderRadius: 999, padding: 4 }}>
+                    <div style={{ display: 'inline-flex', gap: 2, background: t.bg3, borderRadius: 999, padding: 4, flexWrap: 'wrap', maxWidth: '100%' }}>
                       {(['chat', 'search'] as const).map(v => (
-                        <button key={v} onClick={() => setMode(v)} style={{ border: 'none', borderRadius: 999, padding: '7px 14px', background: mode === v ? (v === 'chat' ? ACCENT : t.bg) : 'transparent', color: mode === v ? (v === 'chat' ? '#fff' : t.text) : t.text2, fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s ease' }}>{v === 'chat' ? 'Chat' : 'Search'}</button>
+                        <button type="button" key={v} onClick={() => setMode(v)} style={{ border: 'none', borderRadius: 999, padding: '8px 14px', background: mode === v ? (v === 'chat' ? CTA : t.bg) : 'transparent', color: mode === v ? (v === 'chat' ? '#fff' : t.text) : t.text2, fontWeight: 600, fontSize: '0.9375em', cursor: 'pointer', transition: 'all 0.15s ease', whiteSpace: 'normal', wordBreak: 'break-word', overflowWrap: 'anywhere', textAlign: 'center', minWidth: 0, maxWidth: '100%' }}>{v === 'chat' ? 'Chat' : 'Search'}</button>
                       ))}
                     </div>
                     {mode === 'search' && (
-                      <div style={{ display: 'inline-flex', gap: 6 }}>
+                      <div style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap', minWidth: 0, maxWidth: '100%' }}>
                         {(['both', 'message', 'bible'] as SearchSource[]).map(s => (
-                          <button key={s} onClick={() => setSearchSource(s)} style={{ ...pillBtn(t), background: searchSource === s ? '#111111' : t.bg3, borderColor: searchSource === s ? '#111111' : t.border, color: searchSource === s ? '#ffffff' : t.text2 }}>
+                          <button type="button" key={s} onClick={() => setSearchSource(s)} style={{ ...pillBtn(t), background: searchSource === s ? CTA : t.bg3, borderColor: searchSource === s ? CTA : t.border, color: searchSource === s ? '#ffffff' : t.text2, minWidth: 0, maxWidth: '100%', whiteSpace: 'normal', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
                             {s === 'both' ? 'Both' : s === 'message' ? 'Message' : 'Bible'}
                           </button>
                         ))}
@@ -488,15 +526,15 @@ export default function Home() {
                     )}
                   </div>
 
-                  <div style={{ borderRadius: 24, background: t.bg, border: `1px solid ${composerFocused ? ACCENT : t.border}`, boxShadow: t.shadow, display: 'flex', gap: 8, alignItems: 'center', minHeight: 56, padding: '8px 10px 8px 14px', transition: 'all 0.15s ease' }}>
-                    <div style={{ flex: 1, display: 'flex', alignItems: 'center', minHeight: 36 }}>
-                      <textarea ref={taRef} value={query} onChange={e => setQuery(e.target.value)} onFocus={() => setComposerFocused(true)} onBlur={() => setComposerFocused(false)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }} placeholder={mode === 'chat' ? 'Ask about The Message or the Bible...' : 'Search passages directly...'} rows={1} style={{ width: '100%', border: 'none', outline: 'none', resize: 'none', background: 'transparent', color: t.text, fontSize: 16, fontWeight: 500, lineHeight: '24px', height: 24, padding: 0, margin: 0, maxHeight: 140 }} />
+                  <div style={{ borderRadius: 24, background: t.bg, border: `1px solid ${composerFocused ? CTA : t.border}`, boxShadow: t.shadow, display: 'flex', gap: 8, alignItems: 'flex-end', minHeight: 56, padding: '8px 10px 8px 14px', transition: 'all 0.15s ease', minWidth: 0 }}>
+                    <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', minHeight: 36 }}>
+                      <textarea ref={taRef} value={query} onChange={e => setQuery(e.target.value)} onFocus={() => setComposerFocused(true)} onBlur={() => setComposerFocused(false)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }} placeholder={mode === 'chat' ? 'Ask about The Message or the Bible...' : 'Search passages directly...'} rows={1} style={{ width: '100%', minWidth: 0, border: 'none', outline: 'none', resize: 'none', background: 'transparent', color: t.text, fontSize: '1em', fontWeight: 500, lineHeight: 1.45, height: 24, padding: 0, margin: 0, maxHeight: 140, overflowWrap: 'anywhere', wordBreak: 'break-word' }} />
                     </div>
-                    <button onClick={send} disabled={!query.trim() || loading} style={{ width: 38, height: 38, borderRadius: 999, border: 'none', background: query.trim() && !loading ? '#111111' : t.bg3, color: query.trim() && !loading ? '#fff' : t.text2, display: 'grid', placeItems: 'center', cursor: query.trim() && !loading ? 'pointer' : 'default', transition: 'all 0.15s ease' }}>
+                    <button type="button" onClick={send} disabled={!query.trim() || loading} style={{ flexShrink: 0, width: 40, height: 40, borderRadius: 999, border: 'none', background: query.trim() && !loading ? CTA : t.bg3, color: query.trim() && !loading ? '#fff' : t.text2, display: 'grid', placeItems: 'center', cursor: query.trim() && !loading ? 'pointer' : 'default', transition: 'all 0.15s ease' }}>
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 2L11 13"/><path d="M22 2L15 22l-4-9-9-4 20-7z"/></svg>
                     </button>
                   </div>
-                  <p style={{ textAlign: 'center', marginTop: 7, color: t.text2, fontSize: 11.5 }}>Sources limited to William Branham sermons and the KJV Bible.</p>
+                  <p style={{ textAlign: 'center', marginTop: 7, color: t.text2, fontSize: '0.8125em', padding: '0 4px', overflowWrap: 'anywhere' }}>Sources limited to William Branham sermons and the KJV Bible.</p>
                 </div>
               </div>
             </div>
@@ -522,7 +560,7 @@ export default function Home() {
           {view === 'reader' && (
             <div style={panelWrap}>
               <div style={panelInner}>
-                <button onClick={() => setView('sermons')} style={flatBtn(ACCENT)}>← Back to library</button>
+                <button onClick={() => setView('sermons')} style={flatBtn(CTA)}>← Back to library</button>
                 <h2 style={{ ...h2, marginTop: 8 }}>{currentSermon.title}</h2>
                 <p style={{ color: t.text2, marginBottom: 12 }}>{currentSermon.date} · {currentSermon.location} · #{currentSermon.ref}</p>
                 {SERMON_PARAS.map((p, i) => (
@@ -540,16 +578,16 @@ export default function Home() {
           {view === 'bookmarks' && (
             <div style={panelWrap}>
               <div style={panelInner}>
-                <h2 style={h2}>Saved Quotes</h2>
+                <h2 style={h2}>Folders</h2>
                 {!user ? (
                   <div style={emptyCard(t)}><p style={{ color: t.text2, marginBottom: 8 }}>Sign in to manage saved quotes.</p><button onClick={() => setAuthMode('login')} style={primaryBtn(false)}>Sign in</button></div>
                 ) : activeFolder ? (
                   <>
-                    <button onClick={() => setActiveFolder(null)} style={flatBtn(ACCENT)}>← Back to all quotes</button>
+                    <button onClick={() => setActiveFolder(null)} style={flatBtn(CTA)}>← Back to all quotes</button>
                     <h3 style={{ ...h2, fontSize: 16, marginTop: 8 }}>{activeFolder.name}</h3>
                     {folderQuotes.length === 0 ? <p style={{ color: t.text2 }}>No quotes in this folder.</p> : folderQuotes.map(q => (
                       <div key={q.id} style={card(t)}>
-                        <p style={{ margin: 0, borderLeft: `3px solid ${ACCENT}`, paddingLeft: 10, fontStyle: 'italic' }}>"{q.quote_text}"</p>
+                        <p style={{ margin: 0, borderLeft: `3px solid ${CTA}`, paddingLeft: 10, fontStyle: 'italic' }}>"{q.quote_text}"</p>
                         <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
                           <div>
                             <div style={{ fontWeight: 600, color: headingTone, fontSize: 13 }}>{q.source_title}</div>
@@ -562,9 +600,9 @@ export default function Home() {
                   </>
                 ) : (
                   <>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                      <h3 style={{ ...h2, fontSize: 16 }}>Folders</h3>
-                      <button onClick={() => setShowNewFolder(v => !v)} style={pillBtn(t)}>{showNewFolder ? 'Close' : '+ New folder'}</button>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap', minWidth: 0 }}>
+                      <h3 style={{ ...h2, fontSize: '1em', marginBottom: 0 }}>Your folders</h3>
+                      <button type="button" onClick={() => setShowNewFolder(v => !v)} style={pillBtn(t)}>{showNewFolder ? 'Close' : '+ New folder'}</button>
                     </div>
 
                     {showNewFolder && (
@@ -577,7 +615,7 @@ export default function Home() {
 
                     {savedQuotes.length === 0 ? <p style={{ color: t.text2 }}>No quotes saved yet.</p> : savedQuotes.map(q => (
                       <div key={q.id} style={card(t)}>
-                        <p style={{ margin: 0, borderLeft: `3px solid ${ACCENT}`, paddingLeft: 10, fontStyle: 'italic' }}>"{q.quote_text}"</p>
+                        <p style={{ margin: 0, borderLeft: `3px solid ${CTA}`, paddingLeft: 10, fontStyle: 'italic' }}>"{q.quote_text}"</p>
                         <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
                           <div>
                             <div style={{ fontWeight: 600, color: headingTone, fontSize: 13 }}>{q.source_title}</div>
@@ -596,11 +634,12 @@ export default function Home() {
           {view === 'bible' && (
             <div style={panelWrap}>
               <div style={panelInner}>
-                <h2 style={h2}>Bible (KJV)</h2>
+                <h2 style={h2}>Bible</h2>
+                <p style={{ color: t.text2, fontSize: '0.875em', marginTop: -4, marginBottom: 12 }}>King James Version</p>
                 {BIBLE_VERSES.map(v => (
                   <div key={v.ref} style={card(t)}>
                     <div style={{ fontSize: 12, color: t.text2, marginBottom: 6 }}>{v.ref}</div>
-                    <p style={{ margin: 0, borderLeft: `3px solid ${ACCENT}`, paddingLeft: 10, fontStyle: 'italic' }}>{v.text}</p>
+                    <p style={{ margin: 0, borderLeft: `3px solid ${CTA}`, paddingLeft: 10, fontStyle: 'italic' }}>{v.text}</p>
                     <div style={{ marginTop: 8 }}><button onClick={() => { if (!user) return showToast('Sign in to save quotes'); setSaveModal({ text: v.text, title: v.ref, date: 'KJV' }) }} style={pillBtn(t)}>Save verse</button></div>
                   </div>
                 ))}
@@ -643,47 +682,47 @@ export default function Home() {
 }
 
 const fontStack = 'system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", sans-serif'
-const h1: React.CSSProperties = { fontSize: 24, fontWeight: 700, margin: '0 0 6px', lineHeight: 1.2 }
-const h2: React.CSSProperties = { fontSize: 18, fontWeight: 600, margin: '0 0 10px', lineHeight: 1.3 }
-const panelWrap: React.CSSProperties = { flex: 1, overflowY: 'auto', padding: 16 }
-const panelInner: React.CSSProperties = { maxWidth: 860, margin: '0 auto' }
+const h1: React.CSSProperties = { fontSize: '1.5em', fontWeight: 700, margin: '0 0 6px', lineHeight: 1.2, overflowWrap: 'anywhere', wordBreak: 'break-word' }
+const h2: React.CSSProperties = { fontSize: '1.125em', fontWeight: 600, margin: '0 0 10px', lineHeight: 1.3, overflowWrap: 'anywhere', wordBreak: 'break-word' }
+const panelWrap: React.CSSProperties = { flex: 1, minHeight: 0, overflowY: 'auto', padding: 16 }
+const panelInner: React.CSSProperties = { maxWidth: 860, margin: '0 auto', minWidth: 0 }
 
 function viewTitle(view: View, sermonTitle: string) {
   if (view === 'chat') return 'Chat'
   if (view === 'sermons') return 'Sermon Library'
   if (view === 'reader') return sermonTitle
-  if (view === 'bookmarks') return 'Saved Quotes'
-  if (view === 'bible') return 'Bible (KJV)'
+  if (view === 'bookmarks') return 'Folders'
+  if (view === 'bible') return 'Bible'
   return 'Settings'
 }
 
 function inputStyle(t: { border: string; bg: string; text: string }, extra: React.CSSProperties = {}): React.CSSProperties {
-  return { width: '100%', borderRadius: 12, border: `1px solid ${t.border}`, background: t.bg, color: t.text, fontSize: 14, fontWeight: 500, padding: '10px 12px', outline: 'none', transition: 'all 0.15s ease', ...extra }
+  return { width: '100%', minWidth: 0, boxSizing: 'border-box', borderRadius: 12, border: `1px solid ${t.border}`, background: t.bg, color: t.text, fontSize: '0.9375em', fontWeight: 500, padding: '10px 12px', outline: 'none', transition: 'all 0.15s ease', overflowWrap: 'anywhere', wordBreak: 'break-word', ...extra }
 }
 function primaryBtn(block = true): React.CSSProperties {
-  return { width: block ? '100%' : 'auto', border: 'none', borderRadius: 12, background: ACCENT, color: '#fff', padding: '9px 14px', fontWeight: 600, fontSize: 14, cursor: 'pointer', transition: 'all 0.15s ease' }
+  return { width: block ? '100%' : 'auto', maxWidth: '100%', boxSizing: 'border-box', border: 'none', borderRadius: 12, background: CTA, color: '#fff', padding: '10px 14px', fontWeight: 600, fontSize: '0.9375em', lineHeight: 1.35, cursor: 'pointer', transition: 'all 0.15s ease', whiteSpace: 'normal', wordBreak: 'break-word', overflowWrap: 'anywhere', textAlign: 'center' }
 }
 function secondaryBtn(t: { bg3: string; border: string; text2: string }): React.CSSProperties {
-  return { border: `1px solid ${t.border}`, borderRadius: 12, background: t.bg3, color: t.text2, padding: '8px 12px', fontWeight: 600, fontSize: 13, cursor: 'pointer', transition: 'all 0.15s ease' }
+  return { maxWidth: '100%', boxSizing: 'border-box', border: `1px solid ${t.border}`, borderRadius: 12, background: t.bg3, color: t.text2, padding: '9px 12px', fontWeight: 600, fontSize: '0.875em', lineHeight: 1.35, cursor: 'pointer', transition: 'all 0.15s ease', whiteSpace: 'normal', wordBreak: 'break-word', overflowWrap: 'anywhere', textAlign: 'center' }
 }
 function flatBtn(color: string): React.CSSProperties {
-  return { border: 'none', background: 'none', color, fontSize: 13, cursor: 'pointer' }
+  return { border: 'none', background: 'none', color, fontSize: '0.875em', fontWeight: 500, cursor: 'pointer', whiteSpace: 'normal', wordBreak: 'break-word', overflowWrap: 'anywhere', textAlign: 'left', maxWidth: '100%' }
 }
 function pillBtn(t: { bg3: string; border: string; text2: string }): React.CSSProperties {
-  return { border: `1px solid ${t.border}`, borderRadius: 999, background: t.bg3, color: t.text2, padding: '6px 11px', fontSize: 12, fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s ease' }
+  return { border: `1px solid ${t.border}`, borderRadius: 999, background: t.bg3, color: t.text2, padding: '7px 12px', fontSize: '0.875em', fontWeight: 600, lineHeight: 1.3, cursor: 'pointer', transition: 'all 0.15s ease', whiteSpace: 'normal', wordBreak: 'break-word', overflowWrap: 'anywhere', textAlign: 'center', maxWidth: '100%', boxSizing: 'border-box' }
 }
 function iconBtn(t: { bg3: string; border: string; text2: string }): React.CSSProperties {
-  return { width: 30, height: 30, borderRadius: 12, border: `1px solid ${t.border}`, background: t.bg3, color: t.text2, cursor: 'pointer', transition: 'all 0.15s ease' }
+  return { width: 32, height: 32, borderRadius: 12, border: `1px solid ${t.border}`, background: t.bg3, color: t.text2, fontSize: '0.875em', cursor: 'pointer', transition: 'all 0.15s ease', flexShrink: 0, display: 'grid', placeItems: 'center', padding: 0 }
 }
 function navBtn(t: { bg3: string; border: string; text2: string; text: string }, active: boolean): React.CSSProperties {
-  return { width: '100%', borderRadius: 12, border: 'none', textAlign: 'left', padding: '8px 10px', background: active ? `${ACCENT}2a` : 'transparent', color: active ? ACCENT : t.text2, fontWeight: active ? 600 : 500, cursor: 'pointer', transition: 'all 0.15s ease' }
+  return { width: '100%', maxWidth: '100%', boxSizing: 'border-box', borderRadius: 12, border: 'none', textAlign: 'left', padding: '9px 10px', background: active ? CTA_MUTED_BG : 'transparent', color: active ? CTA : t.text2, fontWeight: active ? 600 : 500, fontSize: '0.9375em', lineHeight: 1.35, cursor: 'pointer', transition: 'all 0.15s ease', whiteSpace: 'normal', wordBreak: 'break-word', overflowWrap: 'anywhere' }
 }
 function folderRowBtn(t: { text: string; text2: string }): React.CSSProperties {
-  return { width: '100%', border: 'none', background: 'transparent', padding: '6px 8px', borderRadius: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, color: t.text, fontSize: 12.5 }
+  return { width: '100%', minWidth: 0, border: 'none', background: 'transparent', padding: '6px 8px', borderRadius: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, color: t.text, fontSize: '0.875em', textAlign: 'left', boxSizing: 'border-box' }
 }
 function card(t: { bg2: string; border: string; shadow: string }): React.CSSProperties {
-  return { background: t.bg2, border: `1px solid ${t.border}`, borderRadius: 14, padding: 12, marginBottom: 10, boxShadow: t.shadow }
+  return { background: t.bg2, border: `1px solid ${t.border}`, borderRadius: 14, padding: 12, marginBottom: 10, boxShadow: t.shadow, minWidth: 0, overflow: 'hidden', boxSizing: 'border-box' }
 }
 function emptyCard(t: { bg2: string; border: string }): React.CSSProperties {
-  return { background: t.bg2, border: `1px solid ${t.border}`, borderRadius: 14, padding: 20, textAlign: 'center', marginBottom: 10 }
+  return { background: t.bg2, border: `1px solid ${t.border}`, borderRadius: 14, padding: 20, textAlign: 'center', marginBottom: 10, minWidth: 0, overflow: 'hidden', boxSizing: 'border-box' }
 }
