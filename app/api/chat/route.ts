@@ -81,6 +81,59 @@ function buildLocalFallbackAnswer(query: string, rows: HybridRow[]): string {
   return `${intro}\n\n${bullets}\n\nTry narrowing your question to a specific sermon, quote phrase, or scripture for deeper synthesis.`
 }
 
+async function keywordFallbackRows(query: string): Promise<HybridRow[]> {
+  const q = query.trim()
+  if (!q) return []
+  const seed = q.split(/\s+/)[0] || q
+
+  const { data: sermonMatches } = await supabaseServer
+    .from('sermon_chunks')
+    .select('text, sermons(title, date, reference_code)')
+    .ilike('text', `%${seed}%`)
+    .limit(40)
+
+  const { data: bibleMatches } = await supabaseServer
+    .from('bible_verses')
+    .select('book,chapter,verse,text')
+    .ilike('text', `%${seed}%`)
+    .limit(25)
+
+  const out: HybridRow[] = []
+  for (const row of sermonMatches || []) {
+    const text = toAscii(row?.text || '')
+    if (!text.toLowerCase().includes(q.toLowerCase())) continue
+    const sermonMeta = Array.isArray(row?.sermons) ? row?.sermons?.[0] : row?.sermons
+    out.push({
+      source: 'message',
+      text,
+      title: toAscii(sermonMeta?.title || 'William Branham Sermon'),
+      date: sermonMeta?.date || '',
+      ref: sermonMeta?.reference_code || '',
+      vector_score: 0,
+      keyword_score: 1,
+      hybrid_score: 1,
+    })
+    if (out.length >= 20) break
+  }
+
+  for (const row of bibleMatches || []) {
+    const text = toAscii(row?.text || '')
+    if (!text.toLowerCase().includes(q.toLowerCase())) continue
+    out.push({
+      source: 'bible',
+      text,
+      title: `${row?.book || ''} ${row?.chapter || ''}:${row?.verse || ''}`.trim() || 'KJV Bible',
+      date: 'KJV',
+      ref: '',
+      vector_score: 0,
+      keyword_score: 1,
+      hybrid_score: 1,
+    })
+    if (out.length >= 20) break
+  }
+  return out.slice(0, 20)
+}
+
 function extractReferenceCode(query: string): string | null {
   const m = query.match(/\b\d{2}-\d{4}[A-Z]?\b/i)
   return m ? m[0].toUpperCase() : null
@@ -202,39 +255,25 @@ export async function POST(request: NextRequest) {
         })
 
       if (hybridError) {
-        return NextResponse.json({ error: hybridError.message }, { status: 500 })
+        ranked = await keywordFallbackRows(query)
+      } else {
+        ranked = ((hybridResults || []) as any[]).map((row: any) => ({
+          source: row.source === 'bible' ? 'bible' : 'message',
+          text: toAscii(row.text || ''),
+          title: toAscii(row.title || (row.source === 'bible' ? 'KJV Bible' : 'William Branham Sermon')),
+          date: row.date || '',
+          ref: row.ref || '',
+          vector_score: Number(row.vector_score || 0),
+          keyword_score: Number(row.keyword_score || 0),
+          hybrid_score: Number(row.hybrid_score || 0),
+        } as HybridRow))
       }
-
-      ranked = ((hybridResults || []) as any[]).map((row: any) => ({
-        source: row.source === 'bible' ? 'bible' : 'message',
-        text: toAscii(row.text || ''),
-        title: toAscii(row.title || (row.source === 'bible' ? 'KJV Bible' : 'William Branham Sermon')),
-        date: row.date || '',
-        ref: row.ref || '',
-        vector_score: Number(row.vector_score || 0),
-        keyword_score: Number(row.keyword_score || 0),
-        hybrid_score: Number(row.hybrid_score || 0),
-      } as HybridRow))
     }
 
     let reranked = usedSpecificSermon ? ranked.slice(0, 20) : await rerankWithClaude(query, ranked)
 
     if (!reranked.length) {
-      const { data: keywordFallbackRows } = await supabaseServer
-        .from('sermon_chunks')
-        .select('text,sermons(title,date,reference_code)')
-        .ilike('text', `%${query}%`)
-        .limit(20)
-      reranked = (keywordFallbackRows || []).map((row: any) => ({
-        source: 'message',
-        text: toAscii(row?.text || ''),
-        title: toAscii(row?.sermons?.title || 'William Branham Sermon'),
-        date: row?.sermons?.date || '',
-        ref: row?.sermons?.reference_code || '',
-        vector_score: 0,
-        keyword_score: 1,
-        hybrid_score: 1,
-      }))
+      reranked = await keywordFallbackRows(query)
     }
 
     const passages = reranked.map((r, idx) =>
