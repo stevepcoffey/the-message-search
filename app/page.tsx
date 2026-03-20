@@ -112,7 +112,43 @@ function sermonParagraphsFromText(text?: string | null): string[] {
   if (sentences.length <= 3) return [oneBlock]
   const chunked: string[] = []
   for (let i = 0; i < sentences.length; i += 3) chunked.push(sentences.slice(i, i + 3).join(' '))
-  return chunked
+  if (chunked.length > 1) return chunked
+  // Final fallback for transcripts that arrive as one giant block with weak punctuation.
+  const words = oneBlock.split(/\s+/).filter(Boolean)
+  if (words.length <= 130) return [oneBlock]
+  const byWords: string[] = []
+  for (let i = 0; i < words.length; i += 120) byWords.push(words.slice(i, i + 120).join(' '))
+  return byWords
+}
+
+function normalizeForMatch(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function findBestParagraphIndex(paragraphs: string[], quote: string): number {
+  const qNorm = normalizeForMatch(quote)
+  if (!qNorm || paragraphs.length === 0) return -1
+  const qTokens = [...new Set(qNorm.split(' ').filter(w => w.length >= 4))]
+  if (!qTokens.length) return -1
+  let bestIdx = -1
+  let bestScore = 0
+  for (let i = 0; i < paragraphs.length; i++) {
+    const pNorm = normalizeForMatch(paragraphs[i])
+    let score = 0
+    for (const t of qTokens) {
+      if (pNorm.includes(t)) score += 1
+    }
+    if (qNorm.length >= 24 && pNorm.includes(qNorm.slice(0, Math.min(80, qNorm.length)))) score += 3
+    if (score > bestScore) {
+      bestScore = score
+      bestIdx = i
+    }
+  }
+  return bestScore > 0 ? bestIdx : -1
 }
 
 function HomeLanding({
@@ -870,13 +906,9 @@ export default function Home() {
   }, [folders])
   const sermonParagraphs = useMemo(() => sermonParagraphsFromText(currentSermon?.full_text), [currentSermon?.full_text])
   const sermonDrawerParagraphs = useMemo(() => sermonParagraphsFromText(sermonDrawer.sermon?.full_text), [sermonDrawer.sermon?.full_text])
-  const sermonDrawerHitIndex = useMemo(() => {
-    const needle = (sermonDrawer.highlightQuote || '').replace(/\s+/g, ' ').trim().toLowerCase()
-    if (!needle || needle.length < 6) return -1
-    return sermonDrawerParagraphs.findIndex(p => p.toLowerCase().includes(needle))
-  }, [sermonDrawerParagraphs, sermonDrawer.highlightQuote])
+  const sermonDrawerHitIndex = useMemo(() => findBestParagraphIndex(sermonDrawerParagraphs, sermonDrawer.highlightQuote), [sermonDrawerParagraphs, sermonDrawer.highlightQuote])
   const highlightInText = (text: string, rawNeedle: string) => {
-    const needle = (rawNeedle || '').replace(/\s+/g, ' ').trim()
+    const needle = (rawNeedle || '').replace(/\s+/g, ' ').trim().replace(/^"|"$/g, '')
     if (!needle || needle.length < 6) return text
     const lower = text.toLowerCase()
     const nLower = needle.toLowerCase()
@@ -1713,7 +1745,7 @@ export default function Home() {
                   {sermonDrawer.loading && <p style={{ color: t.text2 }}>Loading sermon...</p>}
                   {!sermonDrawer.loading && sermonDrawer.error && <p style={{ color: t.text2 }}>{sermonDrawer.error}</p>}
                   {!sermonDrawer.loading && !sermonDrawer.error && sermonDrawerParagraphs.map((para, idx) => (
-                    <p key={idx} ref={idx === sermonDrawerHitIndex ? sermonDrawerHitRef : null} style={{ margin: '0 0 12px', overflowWrap: 'anywhere' }}>
+                    <p key={idx} ref={idx === sermonDrawerHitIndex ? sermonDrawerHitRef : null} style={{ margin: '0 0 12px', overflowWrap: 'anywhere', background: idx === sermonDrawerHitIndex ? `${accent.cta}14` : 'transparent', borderRadius: idx === sermonDrawerHitIndex ? 8 : 0, padding: idx === sermonDrawerHitIndex ? '4px 6px' : 0 }}>
                       <strong style={{ marginRight: 6 }}>{idx + 1}.</strong>
                       {highlightInText(para, sermonDrawer.highlightQuote)}
                     </p>
