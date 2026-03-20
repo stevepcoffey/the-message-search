@@ -36,6 +36,12 @@ type SermonDrawerState = {
   sourceLabel: string
 }
 
+const MATCH_STOP_WORDS = new Set([
+  'the', 'and', 'for', 'with', 'that', 'this', 'from', 'what', 'when', 'where', 'about', 'into', 'have',
+  'were', 'will', 'shall', 'unto', 'your', 'you', 'his', 'her', 'their', 'them', 'they', 'been', 'just',
+  'then', 'there', 'here', 'would', 'could', 'should', 'because', 'while', 'night', 'lord', 'god',
+])
+
 /** Primary actions / filled buttons */
 const CTA = 'var(--accent-color)'
 const ACCENT_THEMES: Record<AccentTheme, { cta: string; soft: string; navLight: string; navDark: string; label: string }> = {
@@ -132,7 +138,7 @@ function normalizeForMatch(s: string): string {
 function findBestParagraphIndex(paragraphs: string[], quote: string): number {
   const qNorm = normalizeForMatch(quote)
   if (!qNorm || paragraphs.length === 0) return -1
-  const qTokens = [...new Set(qNorm.split(' ').filter(w => w.length >= 4))]
+  const qTokens = [...new Set(qNorm.split(' ').filter(w => w.length >= 4 && !MATCH_STOP_WORDS.has(w)))]
   if (!qTokens.length) return -1
   let bestIdx = -1
   let bestScore = 0
@@ -142,7 +148,8 @@ function findBestParagraphIndex(paragraphs: string[], quote: string): number {
     for (const t of qTokens) {
       if (pNorm.includes(t)) score += 1
     }
-    if (qNorm.length >= 24 && pNorm.includes(qNorm.slice(0, Math.min(80, qNorm.length)))) score += 3
+    const phraseProbe = qNorm.slice(0, Math.min(80, qNorm.length))
+    if (phraseProbe.length >= 12 && pNorm.includes(phraseProbe)) score += 3
     if (score > bestScore) {
       bestScore = score
       bestIdx = i
@@ -909,11 +916,25 @@ export default function Home() {
   const sermonDrawerHitIndex = useMemo(() => findBestParagraphIndex(sermonDrawerParagraphs, sermonDrawer.highlightQuote), [sermonDrawerParagraphs, sermonDrawer.highlightQuote])
   const highlightInText = (text: string, rawNeedle: string) => {
     const needle = (rawNeedle || '').replace(/\s+/g, ' ').trim().replace(/^"|"$/g, '')
-    if (!needle || needle.length < 6) return text
+    if (!needle || needle.length < 3) return text
     const lower = text.toLowerCase()
     const nLower = needle.toLowerCase()
     const idx = lower.indexOf(nLower)
-    if (idx < 0) return text
+    if (idx < 0) {
+      const tokens = [...new Set(normalizeForMatch(needle).split(' ').filter(w => w.length >= 4 && !MATCH_STOP_WORDS.has(w)))]
+      const bestToken = tokens.sort((a, b) => b.length - a.length).find(t => lower.includes(t))
+      if (!bestToken) return text
+      const tIdx = lower.indexOf(bestToken)
+      return (
+        <>
+          {text.slice(0, tIdx)}
+          <mark style={{ background: `${accent.cta}33`, color: t.text, borderRadius: 4, padding: '0 2px' }}>
+            {text.slice(tIdx, tIdx + bestToken.length)}
+          </mark>
+          {text.slice(tIdx + bestToken.length)}
+        </>
+      )
+    }
     return (
       <>
         {text.slice(0, idx)}
@@ -1277,7 +1298,7 @@ export default function Home() {
                               {r.source === 'message' && (
                                 <button
                                   type="button"
-                                  onClick={() => openSermonDrawer({ title: r.source_title, date: r.source_date, quote: r.quote_text })}
+                                  onClick={() => openSermonDrawer({ title: r.source_title, date: r.source_date, quote: lastSearchQuery || r.quote_text })}
                                   style={pillBtn(t)}
                                 >
                                   Open sermon
