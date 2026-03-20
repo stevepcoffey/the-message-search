@@ -307,6 +307,35 @@ export default function Home() {
     showToast('Quote removed')
   }
 
+  const deleteFolder = async (folderId: string) => {
+    if (!folderId) return
+    const ok = window.confirm('Delete this folder? Quotes will be kept and moved out of this folder.')
+    if (!ok) return
+
+    const { error: detachError } = await supabase
+      .from('saved_quotes')
+      .update({ folder_id: null })
+      .eq('folder_id', folderId)
+
+    if (detachError) {
+      showToast(detachError.message || 'Failed to remove quotes from folder')
+      return
+    }
+
+    let deleteQuery = supabase.from('folders').delete().eq('id', folderId)
+    if (user?.id) deleteQuery = deleteQuery.eq('user_id', user.id)
+    const { error: deleteError } = await deleteQuery
+    if (deleteError) {
+      showToast(deleteError.message || 'Failed to delete folder')
+      return
+    }
+
+    setFolders(prev => prev.filter(f => f.id !== folderId))
+    setSavedQuotes(prev => prev.map(q => (q.folder_id === folderId ? { ...q, folder_id: null } : q)))
+    if (activeFolder?.id === folderId) setActiveFolder(null)
+    showToast('Folder deleted')
+  }
+
   const getPlainTextFromNode = (node: any): string => {
     if (node == null) return ''
     if (typeof node === 'string' || typeof node === 'number') return String(node)
@@ -430,7 +459,7 @@ export default function Home() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: t.bg, color: t.text, fontFamily: fontStack, fontSize, fontWeight: 500, lineHeight: 1.7, transition: 'background 0.15s ease, color 0.15s ease', overflow: 'hidden' }}>
+    <div style={{ height: '100vh', background: t.bg, color: t.text, fontFamily: fontStack, fontSize, fontWeight: 500, lineHeight: 1.7, transition: 'background 0.15s ease, color 0.15s ease', overflow: 'hidden' }}>
       {toast && <div style={{ position: 'fixed', bottom: 20, left: '50%', transform: 'translateX(-50%)', background: t.bg3, color: t.text, border: `1px solid ${t.border}`, borderRadius: 999, padding: '7px 12px', fontSize: 12, zIndex: 200 }}>{toast}</div>}
 
       {saveModal && (
@@ -456,7 +485,7 @@ export default function Home() {
         </div>
       )}
 
-      <div style={{ display: 'flex', minHeight: '100vh' }}>
+      <div style={{ display: 'flex', height: '100%' }}>
         <aside style={{ width: sidebarOpen ? 245 : 0, minWidth: sidebarOpen ? 245 : 0, overflow: 'hidden', transition: 'all 0.15s ease', background: t.bg2, borderRight: `1px solid ${t.border}` }}>
           <div style={{ width: 245, height: '100vh', display: 'flex', flexDirection: 'column', padding: 10, minHeight: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '4px 4px 10px', flexShrink: 0 }}>
@@ -950,7 +979,10 @@ export default function Home() {
                 ) : activeFolder ? (
                   <>
                     <button type="button" onClick={() => setActiveFolder(null)} style={flatBtn(CTA)}>← Back</button>
-                    <h3 style={{ ...h2, fontSize: 16, marginTop: 8 }}>{activeFolder.name}</h3>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 8 }}>
+                      <h3 style={{ ...h2, fontSize: 16, margin: 0 }}>{activeFolder.name}</h3>
+                      <button type="button" onClick={() => deleteFolder(activeFolder.id)} style={secondaryBtn(t)}>Delete folder</button>
+                    </div>
                     {folderQuotes.length === 0 ? <p style={{ color: t.text2 }}>No quotes in this folder.</p> : folderQuotes.map(q => (
                       <div key={q.id} style={card(t)}>
                         <p style={{ margin: 0, borderLeft: `3px solid ${CTA}`, paddingLeft: 10, fontStyle: 'italic' }}>"{q.quote_text}"</p>
@@ -984,18 +1016,30 @@ export default function Home() {
                       <p style={{ color: t.text2 }}>No folders yet. Create one above.</p>
                     ) : (
                       foldersSorted.map(f => (
-                        <button
+                        <div
                           key={f.id}
-                          type="button"
-                          onClick={() => setActiveFolder(f)}
-                          style={{ ...card(t), width: '100%', textAlign: 'left', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'space-between' }}
+                          style={{ ...card(t), width: '100%', display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'space-between' }}
                         >
-                          <span style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                          <button
+                            type="button"
+                            onClick={() => setActiveFolder(f)}
+                            style={{ border: 'none', background: 'transparent', padding: 0, margin: 0, cursor: 'pointer', minWidth: 0, flex: 1, textAlign: 'left', display: 'flex', alignItems: 'center', gap: 10 }}
+                          >
                             <span style={{ width: 10, height: 10, borderRadius: 999, background: f.color, flexShrink: 0 }} />
                             <span style={{ fontWeight: 600, color: t.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                          </button>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                            <span style={{ fontSize: 13, color: t.text3 }}>{savedQuotes.filter(q => q.folder_id === f.id).length}</span>
+                            <button
+                              type="button"
+                              onClick={() => deleteFolder(f.id)}
+                              style={{ ...iconBtn(t), width: 24, height: 24, borderRadius: 8, fontSize: 11 }}
+                              aria-label={`Delete ${f.name}`}
+                            >
+                              ✕
+                            </button>
                           </span>
-                          <span style={{ fontSize: 13, color: t.text3, flexShrink: 0 }}>{savedQuotes.filter(q => q.folder_id === f.id).length}</span>
-                        </button>
+                        </div>
                       ))
                     )}
                     <button type="button" onClick={() => setFoldersListOnly(false)} style={{ ...flatBtn(CTA), marginTop: 14, display: 'block' }}>
