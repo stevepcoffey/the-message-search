@@ -146,15 +146,22 @@ export default function BibleReader({
     let cancelled = false
     ;(async () => {
       setSearchLoading(true)
-      const { data, error } = await supabase
-        .from('bible_verses')
-        .select('book, chapter, verse, text')
-        .ilike('text', `%${q}%`)
-        .limit(100)
-      if (!cancelled) {
-        if (error) showToast(error.message)
-        else setSearchResults((data || []) as any[])
-        setSearchLoading(false)
+      try {
+        const res = await fetch('/api/bible/search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: q }),
+        })
+        const json = await res.json()
+        if (!res.ok) throw new Error(json?.error || 'Bible search failed')
+        if (!cancelled) setSearchResults((json?.results || []) as any[])
+      } catch (e: any) {
+        if (!cancelled) {
+          showToast(e?.message || 'Bible search failed')
+          setSearchResults([])
+        }
+      } finally {
+        if (!cancelled) setSearchLoading(false)
       }
     })()
     return () => {
