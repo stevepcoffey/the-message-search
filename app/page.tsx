@@ -8,9 +8,9 @@ import BibleReader from '@/components/BibleReader'
 type Message = { role: 'user' | 'assistant'; content: string; sources?: any[] }
 type Folder = { id: string; name: string; color: string; created_at?: string }
 type SavedQuote = { id: string; quote_text: string; source_title: string; source_date: string; folder_id: string | null }
-type SearchResult = { quote_text: string; source_title: string; source_date: string; source: 'message' | 'bible' }
+type SearchResult = { quote_text: string; source_title: string; source_date: string; source: 'message' | 'bible'; relevance_score?: number }
 type SearchSource = 'both' | 'message' | 'bible'
-type SearchMatchType = 'exact_phrase' | 'all_words'
+type SearchMatchType = 'relevant' | 'exact_phrase' | 'all_words'
 type SearchSortMode = 'relevance' | 'newest' | 'oldest'
 type SermonSort = 'newest' | 'oldest'
 type SermonDecade = 'all' | '1947-49' | '1950s' | '1960s'
@@ -290,7 +290,7 @@ export default function Home() {
 
   const [mode, setMode] = useState<'chat' | 'search'>('search')
   const [searchSource, setSearchSource] = useState<SearchSource>('both')
-  const [searchMatchType, setSearchMatchType] = useState<SearchMatchType>('exact_phrase')
+  const [searchMatchType, setSearchMatchType] = useState<SearchMatchType>('relevant')
   const [searchSortMode, setSearchSortMode] = useState<SearchSortMode>('relevance')
   const [query, setQuery] = useState('')
   const [lastSearchQuery, setLastSearchQuery] = useState('')
@@ -617,35 +617,9 @@ export default function Home() {
     )
   }
 
-  const getResultYear = (dateStr: string): number | null => {
-    if (!dateStr) return null
-    const m = dateStr.match(/\b(18|19|20)\d{2}\b/)
-    if (m) return Number(m[0])
-    const d = new Date(dateStr)
-    return Number.isNaN(d.getTime()) ? null : d.getFullYear()
-  }
-
-  const getResultRelevanceScore = (r: SearchResult): number => {
-    const terms = getSearchHighlightTerms(lastSearchQuery, searchMatchType)
-    const hay = `${r.quote_text} ${r.source_title} ${r.source_date}`.toLowerCase()
-    const termHits = terms.reduce((n, t) => (hay.includes(t.toLowerCase()) ? n + 1 : n), 0)
-    const exactBoost = searchMatchType === 'exact_phrase' && terms[0] && r.quote_text.toLowerCase().includes(terms[0].toLowerCase()) ? 3 : 0
-    const sourceBoost = r.source === 'message' ? 0.2 : 0
-    return termHits + exactBoost + sourceBoost
-  }
-
   const sortedSearchResults = useMemo(() => {
-    const rows = [...searchResults]
-    if (searchSortMode === 'newest') {
-      return rows.sort((a, b) => (getResultYear(b.source_date) || -1) - (getResultYear(a.source_date) || -1))
-    }
-    if (searchSortMode === 'oldest') {
-      return rows.sort((a, b) => (getResultYear(a.source_date) || 99999) - (getResultYear(b.source_date) || 99999))
-    }
-    return rows.sort((a, b) => getResultRelevanceScore(b) - getResultRelevanceScore(a))
-  }, [searchResults, searchSortMode, lastSearchQuery, searchMatchType])
-  const messageSearchResults = useMemo(() => sortedSearchResults.filter(r => r.source === 'message'), [sortedSearchResults])
-  const bibleSearchResults = useMemo(() => sortedSearchResults.filter(r => r.source === 'bible'), [sortedSearchResults])
+    return [...searchResults].sort((a, b) => (Number(b.relevance_score || 0) - Number(a.relevance_score || 0)))
+  }, [searchResults])
 
   const topRelevantTerms = useMemo(() => {
     const q = (lastSearchQuery || '').toLowerCase().trim()
@@ -932,6 +906,7 @@ export default function Home() {
                   <div style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', padding: '2px 2px 2px 0' }}>
                     <span style={{ fontSize: 11, letterSpacing: '0.04em', textTransform: 'uppercase', color: t.text3, fontWeight: 700 }}>Match</span>
                     {([
+                      { id: 'relevant', label: 'Relevant' },
                       { id: 'exact_phrase', label: 'Exact phrase' },
                       { id: 'all_words', label: 'All words' },
                     ] as const).map(opt => {
@@ -959,7 +934,9 @@ export default function Home() {
               <span style={{ fontSize: 12, fontStyle: 'italic', color: t.text3, lineHeight: 1.35 }}>
                 {mode === 'chat'
                   ? 'AI synthesized answer with sources'
-                  : searchMatchType === 'exact_phrase'
+                  : searchMatchType === 'relevant'
+                    ? 'Semantic + keyword relevance'
+                    : searchMatchType === 'exact_phrase'
                     ? 'Exact phrase match in sermons & KJV'
                     : 'Contains all entered words (any order)'}
               </span>
@@ -1331,109 +1308,46 @@ export default function Home() {
                       )}
                       {showInlineComposer && renderComposer(true)}
                       {searchResults.length > 0 && (
-                        <div style={{ ...card(t), marginBottom: 12 }}>
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div style={{ ...card(t), marginBottom: 12, display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center', justifyContent: 'space-between' }}>
+                          <div style={{ fontSize: 14, color: t.text2 }}>
+                            Found <strong style={{ color: t.text }}>{sortedSearchResults.length}</strong> results for <strong style={{ color: t.text }}>{lastSearchQuery}</strong>
+                          </div>
+                          {topRelevantTerms.length > 0 && (
                             <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                              <span style={{ fontSize: 11, letterSpacing: '0.04em', textTransform: 'uppercase', color: t.text3, fontWeight: 700 }}>Sort</span>
-                              {([
-                                { id: 'relevance', label: 'Relevance' },
-                                { id: 'newest', label: 'Newest year' },
-                                { id: 'oldest', label: 'Oldest year' },
-                              ] as const).map(opt => (
+                              <span style={{ fontSize: 11, letterSpacing: '0.04em', textTransform: 'uppercase', color: t.text3, fontWeight: 700 }}>Other relevant terms</span>
+                              {topRelevantTerms.map(term => (
                                 <button
-                                  key={opt.id}
+                                  key={term}
                                   type="button"
-                                  onClick={() => setSearchSortMode(opt.id)}
-                                  style={{
-                                    ...pillBtn(t),
-                                    background: searchSortMode === opt.id ? `${accent.cta}26` : 'transparent',
-                                    borderColor: searchSortMode === opt.id ? `${accent.cta}80` : t.border,
-                                    color: searchSortMode === opt.id ? (darkMode ? accent.soft : '#1f2937') : t.text2,
-                                    fontWeight: searchSortMode === opt.id ? 700 : 600,
-                                  }}
+                                  onClick={() => { setQuery(term); setTimeout(() => taRef.current?.focus(), 0) }}
+                                  style={pillBtn(t)}
                                 >
-                                  {opt.label}
+                                  {term}
                                 </button>
                               ))}
                             </div>
-                            {topRelevantTerms.length > 0 && (
-                              <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-                                <span style={{ fontSize: 11, letterSpacing: '0.04em', textTransform: 'uppercase', color: t.text3, fontWeight: 700 }}>Other relevant terms</span>
-                                {topRelevantTerms.map(term => (
-                                  <button
-                                    key={term}
-                                    type="button"
-                                    onClick={() => { setQuery(term); setTimeout(() => taRef.current?.focus(), 0) }}
-                                    style={pillBtn(t)}
-                                  >
-                                    {term}
-                                  </button>
-                                ))}
-                              </div>
-                            )}
-                          </div>
+                          )}
                         </div>
                       )}
-                      {sortedSearchResults.length > 0 && searchSource === 'both' ? (
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 12, alignItems: 'start' }}>
-                          <div>
-                            <div style={{ ...card(t), marginBottom: 10, padding: '10px 12px' }}>
-                              <span style={{ fontSize: 11, letterSpacing: '0.04em', textTransform: 'uppercase', color: t.text3, fontWeight: 700 }}>Message ({messageSearchResults.length})</span>
+                      {sortedSearchResults.map((r, i) => {
+                        const score = Math.max(0, Math.min(1, Number(r.relevance_score || 0)))
+                        const isTop = score > 0.75
+                        const isRelated = score >= 0.5 && score <= 0.75
+                        const borderColor = `${accent.cta}${isTop ? 'cc' : isRelated ? '99' : '66'}`
+                        const tintBg = darkMode ? t.bg2 : (isTop ? '#F7FDF7' : '#FFFFFF')
+                        const pct = Math.round(score * 100)
+                        return (
+                          <div key={`${r.source_title}-${r.source_date}-${r.quote_text.slice(0, 40)}-${i}`} style={{ ...card(t), marginBottom: 12, minWidth: 0, padding: 'clamp(14px, 2.3vw, 20px)', borderLeft: `4px solid ${borderColor}`, background: tintBg }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start' }}>
+                              <p style={{ margin: 0, borderLeft: '3px solid #F59E0B', paddingLeft: 'clamp(12px, 1.8vw, 18px)', paddingRight: 'clamp(2px, 0.8vw, 8px)', lineHeight: 1.7, overflowWrap: 'anywhere', wordBreak: 'break-word', flex: 1 }}>
+                                "{highlightMatches(r.quote_text, lastSearchQuery, searchMatchType)}"
+                              </p>
+                              {isTop ? (
+                                <span style={{ fontSize: 11, borderRadius: 999, padding: '4px 8px', background: `${accent.cta}22`, color: darkMode ? accent.soft : '#24523c', border: `1px solid ${accent.cta}55`, fontWeight: 700, whiteSpace: 'nowrap' }}>Top match</span>
+                              ) : isRelated ? (
+                                <span style={{ fontSize: 11, borderRadius: 999, padding: '4px 8px', background: t.bg3, color: t.text2, border: `1px solid ${t.border}`, fontWeight: 700, whiteSpace: 'nowrap' }}>Related</span>
+                              ) : null}
                             </div>
-                            {messageSearchResults.map((r, i) => (
-                              <div key={`m-${r.source_title}-${r.source_date}-${r.quote_text.slice(0, 40)}-${i}`} style={{ ...card(t), marginBottom: 12, minWidth: 0, padding: 'clamp(14px, 2.3vw, 20px)' }}>
-                                <p style={{ margin: 0, borderLeft: `3px solid ${CTA}`, paddingLeft: 'clamp(12px, 1.8vw, 18px)', paddingRight: 'clamp(2px, 0.8vw, 8px)', lineHeight: 1.7, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
-                                  "{highlightMatches(r.quote_text, lastSearchQuery, searchMatchType)}"
-                                </p>
-                                <div style={{ marginTop: 12, display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', flexWrap: 'wrap', minWidth: 0 }}>
-                                  <div style={{ minWidth: 0, flex: '1 1 140px' }}>
-                                    <div style={{ fontWeight: 600, color: headingTone, fontSize: '0.875em', overflowWrap: 'anywhere' }}>{r.source_title || 'William Branham Sermon'}</div>
-                                    <div style={{ color: t.text2, fontSize: '0.8125em' }}>{r.source_date || ''}</div>
-                                  </div>
-                                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', minWidth: 0, justifyContent: 'flex-end' }}>
-                                    <button
-                                      type="button"
-                                      onClick={() => openSermonDrawer({ title: r.source_title, date: r.source_date, quote: (r.quote_text || '').trim() || lastSearchQuery })}
-                                      style={pillBtn(t)}
-                                    >
-                                      Open sermon
-                                    </button>
-                                    <button type="button" onClick={() => copyText(r.quote_text, i)} style={pillBtn(t)}>{copied === i ? 'Copied' : 'Copy'}</button>
-                                    <button type="button" onClick={() => { if (!user) return showToast('Sign in to save quotes'); setSaveModal({ text: r.quote_text, title: r.source_title, date: r.source_date }) }} style={pillBtn(t)}>Save</button>
-                                  </div>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                          <div>
-                            <div style={{ ...card(t), marginBottom: 10, padding: '10px 12px' }}>
-                              <span style={{ fontSize: 11, letterSpacing: '0.04em', textTransform: 'uppercase', color: t.text3, fontWeight: 700 }}>Bible ({bibleSearchResults.length})</span>
-                            </div>
-                            {bibleSearchResults.map((r, i) => (
-                              <div key={`b-${r.source_title}-${r.quote_text.slice(0, 40)}-${i}`} style={{ ...card(t), marginBottom: 12, minWidth: 0, padding: 'clamp(14px, 2.3vw, 20px)' }}>
-                                <p style={{ margin: 0, borderLeft: `3px solid ${CTA}`, paddingLeft: 'clamp(12px, 1.8vw, 18px)', paddingRight: 'clamp(2px, 0.8vw, 8px)', lineHeight: 1.7, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
-                                  "{highlightMatches(r.quote_text, lastSearchQuery, searchMatchType)}"
-                                </p>
-                                <div style={{ marginTop: 12, display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', flexWrap: 'wrap', minWidth: 0 }}>
-                                  <div style={{ minWidth: 0, flex: '1 1 140px' }}>
-                                    <div style={{ fontWeight: 600, color: headingTone, fontSize: '0.875em', overflowWrap: 'anywhere' }}>{r.source_title || 'KJV Bible'}</div>
-                                    <div style={{ color: t.text2, fontSize: '0.8125em' }}>{r.source_date || 'KJV'}</div>
-                                  </div>
-                                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', minWidth: 0, justifyContent: 'flex-end' }}>
-                                    <button type="button" onClick={() => copyText(r.quote_text, i + 10000)} style={pillBtn(t)}>{copied === i + 10000 ? 'Copied' : 'Copy'}</button>
-                                    <button type="button" onClick={() => { if (!user) return showToast('Sign in to save quotes'); setSaveModal({ text: r.quote_text, title: r.source_title, date: r.source_date }) }} style={pillBtn(t)}>Save</button>
-                                  </div>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      ) : sortedSearchResults.length > 0 ? (
-                        sortedSearchResults.map((r, i) => (
-                          <div key={`${r.source_title}-${r.source_date}-${r.quote_text.slice(0, 40)}-${i}`} style={{ ...card(t), marginBottom: 12, minWidth: 0, padding: 'clamp(14px, 2.3vw, 20px)' }}>
-                            <p style={{ margin: 0, borderLeft: `3px solid ${CTA}`, paddingLeft: 'clamp(12px, 1.8vw, 18px)', paddingRight: 'clamp(2px, 0.8vw, 8px)', lineHeight: 1.7, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
-                              "{highlightMatches(r.quote_text, lastSearchQuery, searchMatchType)}"
-                            </p>
                             <div style={{ marginTop: 12, display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', flexWrap: 'wrap', minWidth: 0 }}>
                               <div style={{ minWidth: 0, flex: '1 1 140px' }}>
                                 <div style={{ fontWeight: 600, color: headingTone, fontSize: '0.875em', overflowWrap: 'anywhere' }}>{r.source_title || (r.source === 'bible' ? 'KJV Bible' : 'William Branham Sermon')}</div>
@@ -1453,9 +1367,15 @@ export default function Home() {
                                 <button type="button" onClick={() => { if (!user) return showToast('Sign in to save quotes'); setSaveModal({ text: r.quote_text, title: r.source_title, date: r.source_date }) }} style={pillBtn(t)}>Save</button>
                               </div>
                             </div>
+                            <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <div style={{ flex: 1, height: 4, borderRadius: 999, background: darkMode ? 'rgba(255,255,255,0.1)' : '#ECECEC', overflow: 'hidden' }}>
+                                <div style={{ width: `${pct}%`, height: '100%', background: borderColor }} />
+                              </div>
+                              <span style={{ fontSize: 11, color: t.text2, minWidth: 34, textAlign: 'right' }}>{pct}%</span>
+                            </div>
                           </div>
-                        ))
-                      ) : null}
+                        )
+                      })}
                     </>
                   ) : (
                     <>
