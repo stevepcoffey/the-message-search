@@ -1519,7 +1519,6 @@ export default function Home() {
                   ) : (
                     sermonParagraphs.map((para, idx) => (
                       <p key={idx} style={{ margin: idx === 0 ? '0 0 12px' : '0 0 12px', overflowWrap: 'anywhere' }}>
-                        <strong style={{ marginRight: 6 }}>{idx + 1}.</strong>
                         {para}
                       </p>
                     ))
@@ -1800,7 +1799,6 @@ export default function Home() {
                   {!sermonDrawer.loading && sermonDrawer.error && <p style={{ color: t.text2 }}>{sermonDrawer.error}</p>}
                   {!sermonDrawer.loading && !sermonDrawer.error && sermonDrawerParagraphs.map((para, idx) => (
                     <p key={idx} ref={idx === sermonDrawerHitIndex ? sermonDrawerHitRef : null} style={{ margin: '0 0 12px', overflowWrap: 'anywhere', background: idx === sermonDrawerHitIndex ? `${accent.cta}14` : 'transparent', borderRadius: idx === sermonDrawerHitIndex ? 8 : 0, padding: idx === sermonDrawerHitIndex ? '4px 6px' : 0 }}>
-                      <strong style={{ marginRight: 6 }}>{idx + 1}.</strong>
                       {highlightInText(para, sermonDrawer.highlightQuote)}
                     </p>
                   ))}
