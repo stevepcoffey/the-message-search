@@ -27,6 +27,13 @@ type SermonRow = {
   reference_code: string | null
 }
 
+type RetrievalMeta = {
+  path: 'specific_sermon' | 'hybrid' | 'keyword_fallback' | 'no_results'
+  reason?: string
+  counts: { ranked: number; reranked: number; sources: number }
+  timings_ms: { total: number; retrieval: number; rerank: number; answer: number }
+}
+
 function toAscii(s: string): string {
   if (!s) return ''
   let o = ''
@@ -224,6 +231,10 @@ async function rerankWithClaude(query: string, rows: HybridRow[]): Promise<Hybri
 }
 
 export async function POST(request: NextRequest) {
+  const startedAt = Date.now()
+  let retrievalMs = 0
+  let rerankMs = 0
+  let answerMs = 0
   try {
     const body = await request.json()
     const query = toAscii(body.query || '').trim()
@@ -232,6 +243,8 @@ export async function POST(request: NextRequest) {
     const specificSermon = await findSpecificSermon(query)
     let ranked: HybridRow[] = []
     let usedSpecificSermon = false
+    let retrievalPath: RetrievalMeta['path'] = 'hybrid'
+    let retrievalReason = ''
 
     if (specificSermon?.id) {
       const { data: chunkRows, error: chunkError } = await supabaseServer
@@ -253,31 +266,35 @@ export async function POST(request: NextRequest) {
           hybrid_score: 1,
         }))
         usedSpecificSermon = true
+        retrievalPath = 'specific_sermon'
       }
     }
 
     if (!usedSpecificSermon) {
-      const expandedQuery = await expandQuery(query)
-
-      const embed = await openai.embeddings.create({
-        model: 'text-embedding-3-small',
-        input: expandedQuery || query,
-      })
-      const queryEmbedding = embed.data[0]?.embedding
-      if (!queryEmbedding) {
-        return NextResponse.json({ error: 'Failed to embed query' }, { status: 500 })
+      let expandedQuery = query
+      try {
+        expandedQuery = await expandQuery(query)
+      } catch {
+        expandedQuery = query
       }
 
-      const { data: hybridResults, error: hybridError } = await supabaseServer
-        .rpc('match_documents_hybrid', {
-          query_embedding: queryEmbedding,
-          keyword_query: expandedQuery || query,
-          match_count: 20,
+      try {
+        const embed = await openai.embeddings.create({
+          model: 'text-embedding-3-small',
+          input: expandedQuery || query,
         })
+        const queryEmbedding = embed.data[0]?.embedding
+        if (!queryEmbedding) throw new Error('embedding_empty')
 
-      if (hybridError) {
-        ranked = await keywordFallbackRows(query)
-      } else {
+        const { data: hybridResults, error: hybridError } = await supabaseServer
+          .rpc('match_documents_hybrid', {
+            query_embedding: queryEmbedding,
+            keyword_query: expandedQuery || query,
+            match_count: 20,
+          })
+
+        if (hybridError) throw new Error(hybridError.message || 'hybrid_error')
+
         ranked = ((hybridResults || []) as any[]).map((row: any) => ({
           source: row.source === 'bible' ? 'bible' : 'message',
           text: toAscii(row.text || ''),
@@ -288,15 +305,23 @@ export async function POST(request: NextRequest) {
           keyword_score: Number(row.keyword_score || 0),
           hybrid_score: Number(row.hybrid_score || 0),
         } as HybridRow))
-        if (!ranked.length) ranked = await keywordFallbackRows(query)
+        retrievalPath = 'hybrid'
+        if (!ranked.length) {
+          retrievalReason = 'hybrid_empty'
+          retrievalPath = 'keyword_fallback'
+          ranked = await keywordFallbackRows(query)
+        }
+      } catch (e: any) {
+        retrievalReason = String(e?.message || 'hybrid_failed')
+        retrievalPath = 'keyword_fallback'
+        ranked = await keywordFallbackRows(query)
       }
     }
+    retrievalMs = Date.now() - startedAt
 
     let reranked = usedSpecificSermon ? ranked.slice(0, 20) : await rerankWithClaude(query, ranked)
-
-    if (!reranked.length) {
-      reranked = await keywordFallbackRows(query)
-    }
+    if (!reranked.length && ranked.length) reranked = ranked.slice(0, 8)
+    rerankMs = Date.now() - startedAt - retrievalMs
 
     const passages = reranked.map((r, idx) =>
       `${idx + 1}. [${r.source.toUpperCase()}] ${r.title}${r.date ? ` (${r.date})` : ''}${r.ref ? ` #${r.ref}` : ''}\n${r.text.slice(0, 950)}`
@@ -324,9 +349,18 @@ ${passages}
     `)
 
     if (!reranked.length || !passages.trim()) {
+      answerMs = Date.now() - startedAt - retrievalMs - rerankMs
+      const retrieval_meta: RetrievalMeta = {
+        path: 'no_results',
+        reason: retrievalReason || 'retrieval_empty',
+        counts: { ranked: ranked.length, reranked: reranked.length, sources: 0 },
+        timings_ms: { total: Date.now() - startedAt, retrieval: retrievalMs, rerank: rerankMs, answer: answerMs },
+      }
+      console.log('chat_retrieval_meta', retrieval_meta)
       return NextResponse.json({
         response: buildLocalFallbackAnswer(query, reranked),
         sources: [],
+        retrieval_meta,
       })
     }
 
@@ -343,6 +377,15 @@ ${passages}
       response = ''
     }
     if (!response) response = buildLocalFallbackAnswer(query, reranked)
+    answerMs = Date.now() - startedAt - retrievalMs - rerankMs
+
+    const retrieval_meta: RetrievalMeta = {
+      path: retrievalPath,
+      reason: retrievalReason || undefined,
+      counts: { ranked: ranked.length, reranked: reranked.length, sources: Math.min(reranked.length, 8) },
+      timings_ms: { total: Date.now() - startedAt, retrieval: retrievalMs, rerank: rerankMs, answer: answerMs },
+    }
+    console.log('chat_retrieval_meta', retrieval_meta)
 
     return NextResponse.json({
       response,
@@ -352,6 +395,7 @@ ${passages}
         source: r.source,
         ref: r.ref || undefined,
       })),
+      retrieval_meta,
     })
   } catch (error: any) {
     console.error('Chat error:', error)
