@@ -35,6 +35,7 @@ type SermonDrawerState = {
   highlightQuote: string
   sourceLabel: string
 }
+type ReaderReturnTarget = { view: View; mode?: 'chat' | 'search'; label: string }
 
 const MATCH_STOP_WORDS = new Set([
   'the', 'and', 'for', 'with', 'that', 'this', 'from', 'what', 'when', 'where', 'about', 'into', 'have',
@@ -273,6 +274,7 @@ export default function Home() {
   const [toast, setToast] = useState('')
 
   const [currentSermon, setCurrentSermon] = useState<SermonItem | null>(null)
+  const [readerReturnTo, setReaderReturnTo] = useState<ReaderReturnTarget>({ view: 'sermons', label: 'library' })
   const [sermonDrawer, setSermonDrawer] = useState<SermonDrawerState>({
     open: false,
     collapsed: false,
@@ -1451,7 +1453,11 @@ export default function Home() {
                     <button
                       key={s.id}
                       type="button"
-                      onClick={() => { setCurrentSermon(s); setView('reader') }}
+                      onClick={() => {
+                        setReaderReturnTo({ view: 'sermons', label: 'library' })
+                        setCurrentSermon(s)
+                        setView('reader')
+                      }}
                       style={{ width: '100%', textAlign: 'left', border: 'none', background: 'transparent', padding: '13px 6px', borderBottom: `1px solid ${t.border}`, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}
                     >
                       <div style={{ minWidth: 0 }}>
@@ -1482,7 +1488,27 @@ export default function Home() {
           {view === 'reader' && (
             <div style={panelWrap}>
               <div style={panelInner}>
-                <button type="button" onClick={() => setView('sermons')} style={flatBtn(CTA)}>← Back to library</button>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (readerReturnTo.view === 'chat') {
+                        setView('chat')
+                        if (readerReturnTo.mode) setMode(readerReturnTo.mode)
+                        return
+                      }
+                      setView(readerReturnTo.view)
+                    }}
+                    style={flatBtn(CTA)}
+                  >
+                    ← Back to {readerReturnTo.label}
+                  </button>
+                  {readerReturnTo.view !== 'chat' && (
+                    <button type="button" onClick={() => { setView('chat'); setMode('chat') }} style={flatBtn(t.text2)}>
+                      Go to chat
+                    </button>
+                  )}
+                </div>
                 <h2 style={{ ...h2, marginTop: 8 }}>{currentSermon?.title || 'Sermon'}</h2>
                 <p style={{ color: t.text2, marginBottom: 12 }}>
                   {fmtSermonDate(currentSermon?.date)}{currentSermon?.location ? ` · ${currentSermon.location}` : ''}{currentSermon?.reference_code ? ` · #${currentSermon.reference_code}` : ''}
@@ -1752,6 +1778,13 @@ export default function Home() {
                       type="button"
                       onClick={() => {
                         if (!sermonDrawer.sermon) return
+                        const backLabel = view === 'chat' ? (mode === 'search' ? 'search' : 'chat') : viewTitle(view, currentSermon?.title || 'Sermon').toLowerCase()
+                        setReaderReturnTo({
+                          view: view === 'reader' ? 'sermons' : view,
+                          mode: view === 'chat' ? mode : undefined,
+                          label: backLabel,
+                        })
+                        setSermonDrawer(prev => ({ ...prev, open: false, collapsed: false }))
                         setCurrentSermon(sermonDrawer.sermon)
                         setView('reader')
                       }}
