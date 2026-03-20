@@ -50,6 +50,33 @@ function getSermonMeta(sermons: SermonRelation) {
   }
 }
 
+async function resolveUserId(request: NextRequest, explicitUserId?: string | null): Promise<string | null> {
+  if (explicitUserId) return explicitUserId
+  const authHeader = request.headers.get('authorization') || ''
+  const token = authHeader.toLowerCase().startsWith('bearer ') ? authHeader.slice(7).trim() : ''
+  if (!token) return null
+  try {
+    const { data } = await supabase.auth.getUser(token)
+    return data?.user?.id || null
+  } catch {
+    return null
+  }
+}
+
+async function logSearchHistory(entry: {
+  query: string
+  mode: 'chat' | 'search'
+  user_id: string | null
+  result_count: number
+  response_time_ms: number
+}) {
+  try {
+    await supabase.from('search_history').insert(entry)
+  } catch {
+    // Non-blocking logging
+  }
+}
+
 function splitSentences(text: string): string[] {
   return text
     .split(/[\n\r]+|(?<=[.!?])\s+/)
@@ -99,8 +126,11 @@ async function suggestSimilarPhrasesFromSermons(query: string): Promise<string[]
 }
 
 export async function POST(request: NextRequest) {
+  const startedAt = Date.now()
   try {
-    const { query, source, match_type } = await request.json()
+    const body = await request.json()
+    const { query, source, match_type } = body
+    const userId = await resolveUserId(request, body?.user_id || null)
     const normalizedQuery = String(query || '').trim()
     const normalizedSource = normalizeSource(source)
     const normalizedMatchType = normalizeMatchType(match_type)
@@ -183,6 +213,13 @@ export async function POST(request: NextRequest) {
 
     if (normalizedMatchType === 'exact_phrase' && results.length === 0) {
       const recommended = await suggestSimilarPhrasesFromSermons(phraseQuery || normalizedQuery)
+      await logSearchHistory({
+        query: normalizedQuery,
+        mode: 'search',
+        user_id: userId,
+        result_count: 0,
+        response_time_ms: Date.now() - startedAt,
+      })
       return NextResponse.json({
         results,
         no_results_message: `No relevant search results were found for the exact phrase "${phraseQuery || normalizedQuery}".`,
@@ -190,6 +227,13 @@ export async function POST(request: NextRequest) {
       })
     }
 
+    await logSearchHistory({
+      query: normalizedQuery,
+      mode: 'search',
+      user_id: userId,
+      result_count: results.length,
+      response_time_ms: Date.now() - startedAt,
+    })
     return NextResponse.json({ results, no_results_message: '', suggested_phrases: [] })
 
   } catch (error) {

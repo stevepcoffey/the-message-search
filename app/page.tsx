@@ -690,7 +690,7 @@ export default function Home() {
         const res = await fetch('/api/search', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ query: q, source: searchSource, match_type: searchMatchType }),
+          body: JSON.stringify({ query: q, source: searchSource, match_type: searchMatchType, user_id: user?.id || null }),
         })
         const data = await res.json()
         if (!res.ok) throw new Error(data?.error || 'Search failed')
@@ -711,7 +711,7 @@ export default function Home() {
     const next = [...messages, { role: 'user', content: q } as Message]
     setMessages(next)
     try {
-      const res = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: q }) })
+      const res = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: q, user_id: user?.id || null }) })
       const data = await res.json()
       if (!res.ok) throw new Error(data?.error || 'Chat failed')
       const content = typeof data?.response === 'string' && data.response.trim()

@@ -40,6 +40,33 @@ const STOP_WORDS = new Set([
   'do', 'does', 'did', 'be', 'are', 'was', 'were', 'it', 'this', 'that', 'as', 'at', 'from', 'how',
 ])
 
+async function resolveUserId(request: NextRequest, explicitUserId?: string | null): Promise<string | null> {
+  if (explicitUserId) return explicitUserId
+  const authHeader = request.headers.get('authorization') || ''
+  const token = authHeader.toLowerCase().startsWith('bearer ') ? authHeader.slice(7).trim() : ''
+  if (!token) return null
+  try {
+    const { data } = await supabaseServer.auth.getUser(token)
+    return data?.user?.id || null
+  } catch {
+    return null
+  }
+}
+
+async function logSearchHistory(entry: {
+  query: string
+  mode: 'chat' | 'search'
+  user_id: string | null
+  result_count: number
+  response_time_ms: number
+}) {
+  try {
+    await supabaseServer.from('search_history').insert(entry)
+  } catch {
+    // Non-blocking logging
+  }
+}
+
 function toAscii(s: string): string {
   if (!s) return ''
   let o = ''
@@ -267,6 +294,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
     const query = toAscii(body.query || '').trim()
+    const userId = await resolveUserId(request, body?.user_id || null)
     if (!query) return NextResponse.json({ error: 'Query required' }, { status: 400 })
 
     const specificSermon = await findSpecificSermon(query)
@@ -411,6 +439,13 @@ Write the response in this exact structure:
         timings_ms: { total: Date.now() - startedAt, retrieval: retrievalMs, rerank: rerankMs, answer: answerMs },
       }
       console.log('chat_retrieval_meta', retrieval_meta)
+      await logSearchHistory({
+        query,
+        mode: 'chat',
+        user_id: userId,
+        result_count: reranked.length,
+        response_time_ms: Date.now() - startedAt,
+      })
       return NextResponse.json({
         response: buildLocalFallbackAnswer(query, reranked),
         sources: [],
@@ -440,6 +475,13 @@ Write the response in this exact structure:
       timings_ms: { total: Date.now() - startedAt, retrieval: retrievalMs, rerank: rerankMs, answer: answerMs },
     }
     console.log('chat_retrieval_meta', retrieval_meta)
+    await logSearchHistory({
+      query,
+      mode: 'chat',
+      user_id: userId,
+      result_count: reranked.length,
+      response_time_ms: Date.now() - startedAt,
+    })
 
     return NextResponse.json({
       response,
