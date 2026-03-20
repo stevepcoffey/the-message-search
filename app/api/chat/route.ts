@@ -336,10 +336,21 @@ export async function POST(request: NextRequest) {
       `${idx + 1}. [${r.source.toUpperCase()}] ${r.title}${r.date ? ` (${r.date})` : ''}${r.ref ? ` #${r.ref}` : ''}\n${r.text.slice(0, 950)}`
     ).join('\n\n')
 
+    console.log('chat_context_debug', {
+      chunk_count: reranked.length,
+      context_preview: passages.slice(0, 200),
+    })
+    console.log('chat_context_full', passages)
+
     const systemPrompt = toAscii(`
-You are a William Branham sermon research assistant.
-Use only the context items below. Do not invent quotes, sermons, or scripture text.
-Never say "the passages provided".
+PASSAGES (use these first and directly):
+${passages}
+
+You are a William Branham research assistant.
+Below are actual excerpts from his sermons and the KJV Bible.
+You MUST quote directly from these excerpts.
+If the excerpts contain relevant content, you MUST use it.
+Never say quotes are unavailable if text is provided below.
 Never recommend external sources, websites, books, apps, or ministries.
 Do not tell the user to search elsewhere.
 Never suggest alternative search terms.
@@ -353,9 +364,6 @@ Write the response in this exact structure:
    - Always include at least 2-3 KJV scripture references relevant to the topic
    - You may include relevant KJV references from biblical knowledge even if not present in context
 4) Brief synthesis paragraph at the end
-
-Context:
-${passages}
     `)
 
     if (!reranked.length || !passages.trim()) {
