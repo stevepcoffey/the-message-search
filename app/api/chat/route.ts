@@ -14,6 +14,7 @@ type Passage = {
   title: string
   date: string
   reference_code: string
+  sermon_id?: string
   source: 'message' | 'bible'
   score: number
 }
@@ -22,6 +23,25 @@ const STOP_WORDS = new Set([
   'what', 'is', 'the', 'a', 'an', 'and', 'or', 'to', 'of', 'in', 'on', 'for', 'with', 'about', 'how',
   'do', 'does', 'did', 'are', 'was', 'were', 'this', 'that', 'these', 'those',
 ])
+
+const DOCTRINE_QUERY_EXPANSIONS: Record<string, string[]> = {
+  'serpent seed': ['Eve', 'garden', 'devil', 'seed', 'Cain', 'beast'],
+  godhead: ['oneness', 'trinity', 'Jesus name', 'Father', 'Son'],
+  'seven seals': ['Revelation', 'seals', 'Lamb', 'book'],
+  rapture: ['translation', 'catching away', 'bride'],
+  bride: ['elected', 'called', 'chosen', 'wife', 'Lamb'],
+  'mark of beast': ['666', 'antichrist', 'church system'],
+  'new birth': ['born again', 'Spirit', 'regeneration'],
+  vindication: ['pillar fire', 'angel', 'prophet', 'sign'],
+}
+
+const DOCTRINE_SERMON_HINTS: Record<string, string[]> = {
+  'serpent seed': ['The Serpent Seed', 'Oneness', 'Marriage And Divorce'],
+  'seven seals': ['The First Seal', 'The Second Seal', 'The Third Seal', 'The Fourth Seal', 'The Fifth Seal', 'The Sixth Seal', 'The Seventh Seal'],
+  'seven church ages': ['The Ephesian Church Age', 'The Smyrnean Church Age', 'The Pergamean Church Age', 'The Thyatirean Church Age', 'The Sardisean Church Age', 'The Philadelphian Church Age', 'The Laodicean Church Age'],
+  godhead: ['The Godhead Explained'],
+  'new birth': ['What Is The New Birth'],
+}
 
 function toAscii(s: string): string {
   if (!s) return ''
@@ -54,6 +74,92 @@ function meaningfulTokens(query: string): string[] {
   )]
 }
 
+function detectDoctrineHints(query: string): { titles: string[]; terms: string[] } {
+  const q = query.toLowerCase()
+  const titles: string[] = []
+  const terms: string[] = []
+  for (const [k, vals] of Object.entries(DOCTRINE_QUERY_EXPANSIONS)) {
+    if (q.includes(k)) terms.push(...vals)
+  }
+  for (const [k, vals] of Object.entries(DOCTRINE_SERMON_HINTS)) {
+    if (q.includes(k)) titles.push(...vals)
+  }
+  return {
+    titles: [...new Set(titles)],
+    terms: [...new Set(terms)],
+  }
+}
+
+function enforceSermonDiversity(rows: Passage[], maxPerSermon = 2, maxTotal = 15): Passage[] {
+  const out: Passage[] = []
+  const sermonCounts = new Map<string, number>()
+  for (const row of rows) {
+    if (out.length >= maxTotal) break
+    if (row.source === 'message') {
+      const key = row.sermon_id || `${row.title}|${row.date}|${row.reference_code}`
+      const used = sermonCounts.get(key) || 0
+      if (used >= maxPerSermon) continue
+      sermonCounts.set(key, used + 1)
+    }
+    out.push(row)
+  }
+  return out
+}
+
+function sampleAcrossSermonChunks(rows: Array<{ text: string; chunk_index: number }>, want = 2): Array<{ text: string; chunk_index: number }> {
+  if (rows.length <= want) return rows
+  const sorted = [...rows].sort((a, b) => a.chunk_index - b.chunk_index)
+  const picks: Array<{ text: string; chunk_index: number }> = []
+  const idxs = want === 1
+    ? [Math.floor((sorted.length - 1) / 2)]
+    : [0, Math.floor((sorted.length - 1) / 2), sorted.length - 1]
+  for (const i of idxs) {
+    const row = sorted[Math.max(0, Math.min(sorted.length - 1, i))]
+    if (!row) continue
+    if (!picks.find(p => p.chunk_index === row.chunk_index)) picks.push(row)
+    if (picks.length >= want) break
+  }
+  return picks
+}
+
+async function retrieveSpecificSermonPassages(query: string, doctrineTitles: string[]): Promise<Passage[]> {
+  const q = query.trim()
+  const titleOrs = [...new Set([q, ...doctrineTitles])]
+    .map(t => `title.ilike.%${t.replace(/[%_]/g, ' ').trim()}%`)
+    .filter(Boolean)
+    .join(',')
+  if (!titleOrs) return []
+
+  const { data: sermonRows } = await supabaseServer
+    .from('sermons')
+    .select('id,title,date,reference_code')
+    .or(titleOrs)
+    .limit(5)
+
+  const out: Passage[] = []
+  for (const s of sermonRows || []) {
+    const { data: chunks } = await supabaseServer
+      .from('sermon_chunks')
+      .select('text,chunk_index')
+      .eq('sermon_id', s.id)
+      .order('chunk_index', { ascending: true })
+      .limit(220)
+    const sampled = sampleAcrossSermonChunks((chunks || []) as any[], 2)
+    for (const c of sampled) {
+      out.push({
+        text: toAscii(String(c?.text || '')),
+        title: toAscii(String(s?.title || 'William Branham Sermon')),
+        date: String(s?.date || ''),
+        reference_code: String(s?.reference_code || ''),
+        sermon_id: String(s?.id || ''),
+        source: 'message',
+        score: 2.5,
+      })
+    }
+  }
+  return out
+}
+
 async function resolveUserId(request: NextRequest, explicitUserId?: string | null): Promise<string | null> {
   if (explicitUserId) return explicitUserId
   const authHeader = request.headers.get('authorization') || ''
@@ -81,12 +187,22 @@ async function logSearchHistory(entry: {
   }
 }
 
-async function retrievePassages(query: string): Promise<Passage[]> {
+async function retrievePassages(query: string): Promise<{ passages: Passage[]; searchedTerms: string[]; oneSermonOnly: boolean }> {
   let expanded = query
   try {
     expanded = await expandQuery(query)
   } catch {
     expanded = query
+  }
+  const doctrine = detectDoctrineHints(query)
+  const searchedTerms = [...new Set([query, ...doctrine.terms, ...meaningfulTokens(expanded || query)])].slice(0, 12)
+
+  // 1) Title/doctrine-first pass for specific sermon retrieval.
+  const specific = await retrieveSpecificSermonPassages(query, doctrine.titles)
+  if (specific.length) {
+    const diversified = enforceSermonDiversity(specific.sort((a, b) => b.score - a.score), 2, 15)
+    const sermonIds = new Set(diversified.filter(p => p.source === 'message').map(p => p.sermon_id || p.title))
+    return { passages: diversified, searchedTerms, oneSermonOnly: sermonIds.size <= 1 }
   }
 
   try {
@@ -109,19 +225,23 @@ async function retrievePassages(query: string): Promise<Passage[]> {
         title: toAscii(String(r?.title || (r?.source === 'bible' ? 'KJV Bible' : 'William Branham Sermon'))),
         date: String(r?.date || ''),
         reference_code: String(r?.ref || ''),
+        sermon_id: String(r?.sermon_id || ''),
         source: r?.source === 'bible' ? 'bible' : 'message',
         score: Number(r?.hybrid_score || 0),
       } as Passage))
       .sort((a, b) => b.score - a.score)
-      .slice(0, 15)
-    if (rows.length >= 10) return rows
+    if (rows.length >= 5) {
+      const diversified = enforceSermonDiversity(rows, 2, 15)
+      const sermonIds = new Set(diversified.filter(p => p.source === 'message').map(p => p.sermon_id || p.title))
+      return { passages: diversified, searchedTerms, oneSermonOnly: sermonIds.size <= 1 }
+    }
   } catch {
     // continue to fallback
   }
 
-  const tokens = meaningfulTokens(expanded || query).slice(0, 8)
+  const tokens = [...new Set([...doctrine.terms.map(t => t.toLowerCase()), ...meaningfulTokens(expanded || query)])].slice(0, 10)
   const orClause = tokens.map(t => `text.ilike.%${t}%`).join(',')
-  if (!orClause) return []
+  if (!orClause) return { passages: [], searchedTerms, oneSermonOnly: false }
 
   const out: Passage[] = []
   const { data: sermonRows } = await supabaseServer
@@ -165,7 +285,9 @@ async function retrievePassages(query: string): Promise<Passage[]> {
     })
   }
 
-  return out.sort((a, b) => b.score - a.score).slice(0, 15)
+  const diversified = enforceSermonDiversity(out.sort((a, b) => b.score - a.score), 2, 15)
+  const sermonIds = new Set(diversified.filter(p => p.source === 'message').map(p => p.sermon_id || p.title))
+  return { passages: diversified, searchedTerms, oneSermonOnly: sermonIds.size <= 1 }
 }
 
 export async function POST(request: NextRequest) {
@@ -176,7 +298,8 @@ export async function POST(request: NextRequest) {
     const userId = await resolveUserId(request, body?.user_id || null)
     if (!query) return NextResponse.json({ error: 'Query required' }, { status: 400 })
 
-    const passages = await retrievePassages(query)
+    const retrieval = await retrievePassages(query)
+    const passages = retrieval.passages
     const rawPassages = passages
       .map((p, i) => `${i + 1}. From ${p.title}${p.date ? ` (${p.date})` : ''}:\n${p.text}`)
       .join('\n\n')
@@ -228,6 +351,10 @@ From [Sermon Title] ([Date]):
 
     return NextResponse.json({
       response,
+      searched_terms: retrieval.searchedTerms,
+      diversity_note: retrieval.oneSermonOnly && passages.length > 0
+        ? 'All results from one sermon - try a broader search for more variety.'
+        : '',
       passages: passages.map(p => ({
         text: p.text,
         title: p.title,

@@ -13,6 +13,13 @@ const THEOLOGY_EXPANSIONS: Record<string, string[]> = {
   'holy spirit': ['Holy Ghost', 'baptism Spirit', 'Spirit of God'],
   'holy ghost': ['holy spirit', 'spirit baptism', 'anointing'],
   'seven church ages': ['Ephesus', 'Laodicea', 'Revelation church'],
+  'serpent seed': ['Eve', 'garden', 'devil', 'seed', 'Cain', 'beast'],
+  godhead: ['oneness', 'trinity', 'Jesus name', 'Father', 'Son'],
+  'seven seals': ['Revelation', 'seals', 'Lamb', 'book'],
+  rapture: ['translation', 'catching away', 'bride'],
+  bride: ['elected', 'called', 'chosen', 'wife', 'Lamb'],
+  'mark of beast': ['666', 'antichrist', 'church system'],
+  vindication: ['pillar fire', 'angel', 'prophet', 'sign'],
   baptism: ['water baptism', 'name of jesus christ', 'immersion'],
   love: ['charity', 'brotherly kindness', 'agape'],
   fear: ['reverence', 'anxiety', 'perfect love casteth out fear'],
@@ -69,8 +76,10 @@ export async function expandQuery(query: string): Promise<string> {
   const base = query.trim()
   if (!base) return ''
 
+  const baseTokens = uniqueNormalized(base.split(/\s+/).filter(Boolean))
   const mapped = fromHardcodedMap(base)
   const suggested = await fromClaude(base)
-  const merged = uniqueNormalized([base, ...mapped, ...suggested])
+  // Keep the original query and words first so expansions only supplement.
+  const merged = uniqueNormalized([base, ...baseTokens, ...mapped, ...suggested])
   return merged.join(' ')
 }

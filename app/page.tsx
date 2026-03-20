@@ -6,7 +6,7 @@ import { supabase } from '@/lib/supabase'
 import BibleReader from '@/components/BibleReader'
 
 type ExactPassage = { idx?: number; text: string; title: string; date?: string; source?: 'message' | 'bible'; ref?: string; reference_code?: string }
-type Message = { role: 'user' | 'assistant'; content: string; commentary?: string; exact_passages?: ExactPassage[]; passages?: ExactPassage[]; sources?: any[] }
+type Message = { role: 'user' | 'assistant'; content: string; commentary?: string; exact_passages?: ExactPassage[]; passages?: ExactPassage[]; sources?: any[]; searched_terms?: string[]; diversity_note?: string }
 type Folder = { id: string; name: string; color: string; created_at?: string }
 type SavedQuote = { id: string; quote_text: string; source_title: string; source_date: string; folder_id: string | null }
 type SearchResult = { quote_text: string; source_title: string; source_date: string; source: 'message' | 'bible'; relevance_score?: number }
@@ -789,6 +789,8 @@ export default function Home() {
           ? data.passages
           : (Array.isArray(data?.exact_passages) ? data.exact_passages : []),
         passages: Array.isArray(data?.passages) ? data.passages : [],
+        searched_terms: Array.isArray(data?.searched_terms) ? data.searched_terms : [],
+        diversity_note: typeof data?.diversity_note === 'string' ? data.diversity_note : '',
         sources: Array.isArray(data?.sources) ? data.sources : [],
       }])
     } catch (error: any) {
@@ -1411,6 +1413,16 @@ export default function Home() {
                                 <svg width="12" height="12" viewBox="0 0 20 20" fill="none"><path d="M10 2L3 5.5V10c0 4.1 3 7.7 7 8.5 4-.8 7-4.4 7-8.5V5.5L10 2z" stroke={CTA} strokeWidth="1.5" strokeLinejoin="round"/></svg>
                               </div>
                               <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
+                                {Array.isArray(m.searched_terms) && m.searched_terms.length > 0 && (
+                                  <p style={{ margin: '0 0 10px', fontSize: '0.78em', color: t.text3 }}>
+                                    Searched for: {m.searched_terms.join(', ')}
+                                  </p>
+                                )}
+                                {m.diversity_note && (
+                                  <p style={{ margin: '0 0 10px', fontSize: '0.78em', color: t.text3 }}>
+                                    {m.diversity_note}
+                                  </p>
+                                )}
                                 <ReactMarkdown components={{
                                   p: ({ children }) => <p style={{ margin: '0 0 12px', lineHeight: 1.72, fontWeight: 430, color: t.text2, fontSize: '0.93em', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{children}</p>,
                                   h2: ({ children }) => <h2 style={{ ...h2, marginTop: 18, marginBottom: 12 }}>{children}</h2>,
