@@ -474,7 +474,7 @@ export default function Home() {
     const re = new RegExp(`(${escaped.join('|')})`, 'ig')
     return text.split(re).map((part, idx) =>
       idx % 2 === 1
-        ? <mark key={`hl-${idx}`} style={{ background: '#A0EEC0', color: '#1F2937', padding: '0 2px', borderRadius: 3 }}>{part}</mark>
+        ? <mark key={`hl-${idx}`} style={{ background: accent.soft, color: '#1F2937', padding: '0 2px', borderRadius: 3 }}>{part}</mark>
         : part
     )
   }
@@ -766,7 +766,7 @@ export default function Home() {
                     key={tab.id}
                     type="button"
                     onClick={tab.onClick}
-                    style={{ border: 'none', borderRadius: 999, padding: '6px 10px', background: tab.active ? '#86CD82' : 'transparent', color: tab.active ? '#17351f' : t.text2, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+                    style={{ border: 'none', borderRadius: 999, padding: '6px 10px', background: tab.active ? accent.cta : 'transparent', color: tab.active ? '#ffffff' : t.text2, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
                   >
                     {tab.label}
                   </button>
@@ -1080,8 +1080,8 @@ export default function Home() {
                             border: 'none',
                             borderRadius: 999,
                             padding: '7px 12px',
-                            background: sermonSort === id ? '#86CD82' : 'transparent',
-                            color: sermonSort === id ? '#17351f' : t.text2,
+                            background: sermonSort === id ? accent.cta : 'transparent',
+                            color: sermonSort === id ? '#ffffff' : t.text2,
                             fontWeight: 600,
                             fontSize: 13,
                             cursor: 'pointer',
@@ -1101,7 +1101,7 @@ export default function Home() {
                         key={d}
                         type="button"
                         onClick={() => setSermonDecade(d)}
-                        style={{ ...pillBtn(t), whiteSpace: 'nowrap', background: sermonDecade === d ? '#86CD82' : t.bg, color: sermonDecade === d ? '#17351f' : t.text2, borderColor: sermonDecade === d ? '#86CD82' : t.border }}
+                        style={{ ...pillBtn(t), whiteSpace: 'nowrap', background: sermonDecade === d ? accent.cta : t.bg, color: sermonDecade === d ? '#ffffff' : t.text2, borderColor: sermonDecade === d ? accent.cta : t.border }}
                       >
                         {d === 'all' ? 'All' : d}
                       </button>
