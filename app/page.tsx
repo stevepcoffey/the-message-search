@@ -834,14 +834,14 @@ export default function Home() {
                               </div>
                               <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
                                 <ReactMarkdown components={{
-                                  p: ({ children }) => <p style={{ margin: '0 0 8px', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{children}</p>,
-                                  h2: ({ children }) => <h2 style={{ ...h2, marginTop: 12 }}>{children}</h2>,
-                                  h3: ({ children }) => <h3 style={{ ...h2, fontSize: '1.05em', marginTop: 10 }}>{children}</h3>,
+                                  p: ({ children }) => <p style={{ margin: '0 0 14px', lineHeight: 1.78, fontWeight: 430, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{children}</p>,
+                                  h2: ({ children }) => <h2 style={{ ...h2, marginTop: 18, marginBottom: 12 }}>{children}</h2>,
+                                  h3: ({ children }) => <h3 style={{ ...h2, fontSize: '1.05em', marginTop: 16, marginBottom: 10 }}>{children}</h3>,
                                   blockquote: ({ children }) => {
                                     const quoteText = getPlainTextFromNode(children).trim()
                                     return (
-                                      <div style={{ position: 'relative', margin: '9px 0' }}>
-                                        <blockquote style={{ margin: 0, borderLeft: `3px solid ${CTA}`, paddingLeft: 12, paddingRight: 34, fontStyle: 'italic', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{children}</blockquote>
+                                      <div style={{ position: 'relative', margin: '14px 0 18px' }}>
+                                        <blockquote style={{ margin: 0, borderLeft: `3px solid ${CTA}`, paddingLeft: 14, paddingRight: 34, lineHeight: 1.8, fontWeight: 440, fontStyle: 'italic', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{children}</blockquote>
                                         <button onClick={() => { if (!user) return showToast('Sign in to save quotes'); if (!quoteText) return; setSaveModal({ text: quoteText, title: m.sources?.[0]?.title || 'William Branham Sermon', date: m.sources?.[0]?.date || '' }) }} style={{ ...pillBtn(t), position: 'absolute', top: -1, right: 0, width: 28, height: 28, padding: 0, display: 'grid', placeItems: 'center' }}>
                                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="m19 21-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
                                         </button>
@@ -851,9 +851,9 @@ export default function Home() {
                                 }}>{m.content || ''}</ReactMarkdown>
 
                                 {m.sources && m.sources.length > 0 && (
-                                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8, minWidth: 0 }}>
+                                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 14, minWidth: 0 }}>
                                     {m.sources.map((s: any, idx: number) => (
-                                      <div key={idx} style={{ background: t.bg3, border: `1px solid ${t.border}`, borderRadius: 12, padding: '8px 10px', minWidth: 0, maxWidth: '100%', flex: '1 1 140px' }}>
+                                      <div key={idx} style={{ background: t.bg3, border: `1px solid ${t.border}`, borderRadius: 12, padding: '10px 12px', minWidth: 0, maxWidth: '100%', flex: '1 1 140px' }}>
                                         <div style={{ fontSize: '0.875em', fontWeight: 600, color: headingTone, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{s.title || 'William Branham Sermon'}</div>
                                         <div style={{ fontSize: '0.8125em', color: t.text2, overflowWrap: 'anywhere' }}>{s.date || ''}{s.ref ? ` · #${s.ref}` : ''}</div>
                                       </div>
@@ -861,7 +861,7 @@ export default function Home() {
                                   </div>
                                 )}
 
-                                <div style={{ display: 'flex', gap: 6, marginTop: 9, flexWrap: 'wrap', minWidth: 0 }}>
+                                <div style={{ display: 'flex', gap: 6, marginTop: 14, flexWrap: 'wrap', minWidth: 0 }}>
                                   <button type="button" onClick={() => copyText(m.content, i)} style={pillBtn(t)}>{copied === i ? 'Copied' : 'Copy'}</button>
                                   <button type="button" onClick={() => { if (!user) return showToast('Sign in to save quotes'); setSaveModal({ text: extractSavableQuote(m.content || ''), title: m.sources?.[0]?.title || 'William Branham Sermon', date: m.sources?.[0]?.date || '' }) }} style={pillBtn(t)}>Save</button>
                                 </div>
