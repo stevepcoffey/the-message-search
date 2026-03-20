@@ -19,6 +19,14 @@ type SearchRow = {
   relevance_score: number
 }
 type SermonRelation = { title: string | null; date: string | null; reference_code?: string | null } | Array<{ title: string | null; date: string | null; reference_code?: string | null }> | null
+const STOP_WORDS = new Set([
+  'what', 'is', 'the', 'are', 'a', 'an', 'of', 'to', 'and', 'or', 'in', 'on', 'for', 'with', 'about', 'how',
+  'do', 'does', 'did', 'be', 'was', 'were', 'this', 'that', 'these', 'those', 'please', 'show', 'me',
+])
+const KEY_PHRASES = [
+  'holy spirit', 'holy ghost', 'spirit of god', 'baptism spirit', 'seven church ages', 'jesus name',
+  'new birth', 'divine healing', 'bride of christ', 'son of man', 'word of god', 'eternal life',
+]
 
 function normalizeSource(source: unknown): SearchSource {
   if (source === 'message' || source === 'bible' || source === 'both') return source
@@ -38,6 +46,17 @@ function stripOuterQuotes(s: string): string {
 
 function tokenizeAllWords(s: string): string[] {
   return [...new Set(s.toLowerCase().split(/\s+/).map(w => w.replace(/[^a-z0-9]/g, '').trim()).filter(w => w.length >= 2))]
+}
+
+function extractMeaningfulTerms(query: string, expanded: string): string[] {
+  const base = `${query} ${expanded}`.toLowerCase()
+  const out: string[] = []
+  for (const p of KEY_PHRASES) {
+    if (base.includes(p)) out.push(p)
+  }
+  const words = tokenizeAllWords(base).filter(w => w.length >= 3 && !STOP_WORDS.has(w))
+  out.push(...words)
+  return [...new Set(out)].slice(0, 12)
 }
 
 function containsAllWords(text: string, words: string[]): boolean {
@@ -200,6 +219,63 @@ async function keywordFallbackRows(query: string, source: SearchSource, matchTyp
   return rows.sort((a, b) => b.relevance_score - a.relevance_score)
 }
 
+async function expandedTermFallbackRows(query: string, expanded: string, source: SearchSource): Promise<SearchRow[]> {
+  const terms = extractMeaningfulTerms(query, expanded)
+  if (!terms.length) return []
+  const orClause = terms.map(t => `text.ilike.%${t}%`).join(',')
+  const keySet = new Set(terms.map(t => t.toLowerCase()))
+  const rows: SearchRow[] = []
+
+  if (source === 'both' || source === 'message') {
+    const { data } = await supabase
+      .from('sermon_chunks')
+      .select('text, sermons(title, date)')
+      .or(orClause)
+      .limit(180)
+    for (const row of data || []) {
+      const quoteText = String(row?.text || '')
+      const lower = quoteText.toLowerCase()
+      const hits = [...keySet].reduce((n, t) => (lower.includes(t) ? n + 1 : n), 0)
+      if (hits === 0) continue
+      const sermon = getSermonMeta(row?.sermons as SermonRelation)
+      rows.push({
+        quote_text: quoteText,
+        source_title: sermon.title || 'William Branham Sermon',
+        source_date: sermon.date || '',
+        source: 'message',
+        relevance_score: hits,
+      })
+    }
+  }
+  if (source === 'both' || source === 'bible') {
+    const { data } = await supabase
+      .from('bible_verses')
+      .select('book, chapter, verse, text')
+      .or(orClause)
+      .limit(180)
+    for (const row of data || []) {
+      const quoteText = String(row?.text || '')
+      const lower = quoteText.toLowerCase()
+      const hits = [...keySet].reduce((n, t) => (lower.includes(t) ? n + 1 : n), 0)
+      if (hits === 0) continue
+      rows.push({
+        quote_text: quoteText,
+        source_title: `${row?.book || ''} ${row?.chapter || ''}:${row?.verse || ''}`.trim(),
+        source_date: 'KJV',
+        source: 'bible',
+        relevance_score: hits,
+      })
+    }
+  }
+  return rows.sort((a, b) => b.relevance_score - a.relevance_score)
+}
+
+function normalizeRelativeScores(rows: SearchRow[]): SearchRow[] {
+  if (!rows.length) return rows
+  const top = Math.max(1e-6, ...rows.map(r => Number(r.relevance_score || 0)))
+  return rows.map(r => ({ ...r, relevance_score: clamp01(Number(r.relevance_score || 0) / top) }))
+}
+
 export async function POST(request: NextRequest) {
   const startedAt = Date.now()
   try {
@@ -223,8 +299,15 @@ export async function POST(request: NextRequest) {
     } catch {
       rows = []
     }
+
+    if (matchType === 'relevant' && rows.length < 5) {
+      const expandedFallback = await expandedTermFallbackRows(query, expanded, source)
+      if (expandedFallback.length) rows = expandedFallback
+    }
+
     rows = applyMatchType(rows, matchType, query)
     if (!rows.length) rows = await keywordFallbackRows(query, source, matchType)
+    rows = normalizeRelativeScores(rows)
 
     const seen = new Set<string>()
     const results = rows.filter(r => {

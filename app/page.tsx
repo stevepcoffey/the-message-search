@@ -624,6 +624,17 @@ export default function Home() {
   const sortedSearchResults = useMemo(() => {
     return [...searchResults].sort((a, b) => (Number(b.relevance_score || 0) - Number(a.relevance_score || 0)))
   }, [searchResults])
+  const searchScoreMeta = useMemo(() => {
+    if (!sortedSearchResults.length) return { min: 0, max: 0, range: 0, showBar: false, topCutoff: 1 }
+    const scores = sortedSearchResults.map(r => Math.max(0, Math.min(1, Number(r.relevance_score || 0))))
+    const min = Math.min(...scores)
+    const max = Math.max(...scores)
+    const range = max - min
+    const sortedAsc = [...scores].sort((a, b) => a - b)
+    const idx = Math.max(0, Math.ceil(sortedAsc.length * 0.75) - 1)
+    const topCutoff = sortedAsc[idx] ?? 1
+    return { min, max, range, showBar: range > 0.1, topCutoff }
+  }, [sortedSearchResults])
 
   const topRelevantTerms = useMemo(() => {
     const q = (lastSearchQuery || '').toLowerCase().trim()
@@ -871,7 +882,7 @@ export default function Home() {
                 <div style={{ display: 'inline-flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                   <div style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', padding: '2px 2px 2px 0' }}>
                     <span style={{ fontSize: 11, letterSpacing: '0.04em', textTransform: 'uppercase', color: t.text3, fontWeight: 700 }}>Source</span>
-                    {(['both', 'message', 'bible'] as SearchSource[]).map(s => {
+                    {(['message', 'bible', 'both'] as SearchSource[]).map(s => {
                       const active = searchSource === s
                       return (
                         <button
@@ -1319,7 +1330,7 @@ export default function Home() {
                       )}
                       {sortedSearchResults.map((r, i) => {
                         const score = Math.max(0, Math.min(1, Number(r.relevance_score || 0)))
-                        const isTop = score > 0.75
+                        const isTop = score >= searchScoreMeta.topCutoff
                         const isRelated = score >= 0.5 && score <= 0.75
                         const borderColor = `${accent.cta}${isTop ? 'cc' : isRelated ? '99' : '66'}`
                         const tintBg = darkMode ? t.bg2 : (isTop ? '#F7FDF7' : '#FFFFFF')
@@ -1355,12 +1366,14 @@ export default function Home() {
                                 <button type="button" onClick={() => { if (!user) return showToast('Sign in to save quotes'); setSaveModal({ text: r.quote_text, title: r.source_title, date: r.source_date }) }} style={pillBtn(t)}>Save</button>
                               </div>
                             </div>
+                            {searchScoreMeta.showBar && (
                             <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
                               <div style={{ flex: 1, height: 4, borderRadius: 999, background: darkMode ? 'rgba(255,255,255,0.1)' : '#ECECEC', overflow: 'hidden' }}>
                                 <div style={{ width: `${pct}%`, height: '100%', background: borderColor }} />
                               </div>
                               <span style={{ fontSize: 11, color: t.text2, minWidth: 34, textAlign: 'right' }}>{pct}%</span>
                             </div>
+                            )}
                           </div>
                         )
                       })}
