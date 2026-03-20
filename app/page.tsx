@@ -293,7 +293,7 @@ export default function Home() {
   const [authError, setAuthError] = useState('')
 
   const [mode, setMode] = useState<'chat' | 'search'>('search')
-  const [searchSource, setSearchSource] = useState<SearchSource>('both')
+  const [searchSource, setSearchSource] = useState<SearchSource>('message')
   const [searchMatchType, setSearchMatchType] = useState<SearchMatchType>('relevant')
   const [searchSortMode, setSearchSortMode] = useState<SearchSortMode>('relevance')
   const [query, setQuery] = useState('')
