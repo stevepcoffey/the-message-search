@@ -284,6 +284,7 @@ export default function Home() {
     highlightQuote: '',
     sourceLabel: '',
   })
+  const sermonDrawerReqRef = useRef(0)
   const [sermonSearch, setSermonSearch] = useState('')
   const [sermonSort, setSermonSort] = useState<SermonSort>('newest')
   const [sermonDecade, setSermonDecade] = useState<SermonDecade>('all')
@@ -640,11 +641,29 @@ export default function Home() {
     }
     const title = (opts.title || '').trim()
     if (!title) return null
+    if (opts.date) {
+      const { data: exactDated } = await supabase
+        .from('sermons')
+        .select('id,title,date,location,reference_code,full_text,word_count')
+        .eq('title', title)
+        .eq('date', opts.date)
+        .limit(1)
+        .maybeSingle()
+      if (exactDated) return exactDated as SermonItem
+    }
+    const { data: exactTitle } = await supabase
+      .from('sermons')
+      .select('id,title,date,location,reference_code,full_text,word_count')
+      .eq('title', title)
+      .limit(1)
+      .maybeSingle()
+    if (exactTitle) return exactTitle as SermonItem
+
     let q: any = supabase
       .from('sermons')
       .select('id,title,date,location,reference_code,full_text,word_count')
       .ilike('title', `%${title}%`)
-      .limit(5)
+      .limit(10)
     if (opts.date) q = q.eq('date', opts.date)
     const { data } = await q
     const rows = (data || []) as SermonItem[]
@@ -653,6 +672,7 @@ export default function Home() {
   }
 
   const openSermonDrawer = async (opts: { title?: string; date?: string; ref?: string; quote?: string }) => {
+    const reqId = ++sermonDrawerReqRef.current
     setSermonDrawer({
       open: true,
       collapsed: false,
@@ -664,12 +684,14 @@ export default function Home() {
     })
     try {
       const sermon = await getSermonQueryId(opts)
+      if (reqId !== sermonDrawerReqRef.current) return
       if (!sermon) {
         setSermonDrawer(prev => ({ ...prev, loading: false, error: 'Could not find that sermon record.' }))
         return
       }
       setSermonDrawer(prev => ({ ...prev, loading: false, sermon, error: '' }))
     } catch (e: any) {
+      if (reqId !== sermonDrawerReqRef.current) return
       setSermonDrawer(prev => ({ ...prev, loading: false, error: e?.message || 'Failed to open sermon' }))
     }
   }
@@ -1300,7 +1322,7 @@ export default function Home() {
                               {r.source === 'message' && (
                                 <button
                                   type="button"
-                                  onClick={() => openSermonDrawer({ title: r.source_title, date: r.source_date, quote: lastSearchQuery || r.quote_text })}
+                                  onClick={() => openSermonDrawer({ title: r.source_title, date: r.source_date, quote: (r.quote_text || '').trim() || lastSearchQuery })}
                                   style={pillBtn(t)}
                                 >
                                   Open sermon
