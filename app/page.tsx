@@ -18,21 +18,21 @@ const theme = {
   palette: ['#A0EEC0', '#8AE9C1', '#86CD82', '#72A276', '#666B6A', '#000000'],
   light: {
     bg: '#FFFFFF',
-    surface: '#F4F5F7',
-    surface2: '#EEF1F4',
+    surface: '#F5F5F7',
+    surface2: '#ECECEF',
     text: '#000000',
     text2: '#4A4A4A',
     border: 'rgba(0,0,0,0.08)',
-    shadow: '0 4px 24px rgba(0,0,0,0.08)',
+    shadow: '0 1px 3px rgba(0,0,0,0.08)',
   },
   dark: {
     bg: '#1C1C1E',
     surface: '#2C2C2E',
-    surface2: '#3A3A3C',
+    surface2: '#2F2F31',
     text: '#FFFFFF',
     text2: 'rgba(255,255,255,0.72)',
-    border: 'rgba(255,255,255,0.10)',
-    shadow: '0 6px 28px rgba(0,0,0,0.35)',
+    border: 'rgba(255,255,255,0.06)',
+    shadow: 'none',
   },
 }
 
@@ -273,7 +273,7 @@ export default function Home() {
     return (
       <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', background: t.bg, color: t.text, fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", sans-serif' }}>
         <div style={{ width: 390, background: t.surface, borderRadius: 24, padding: 28, boxShadow: t.shadow, border: `1px solid ${t.border}` }}>
-          <h2 style={{ marginBottom: 6, fontSize: 26, letterSpacing: '-0.02em' }}>{authMode === 'login' ? 'Sign in' : 'Create account'}</h2>
+          <h2 style={{ marginBottom: 6, fontSize: 18, fontWeight: 600, letterSpacing: '-0.01em' }}>{authMode === 'login' ? 'Sign in' : 'Create account'}</h2>
           <p style={{ marginBottom: 16, color: t.text2 }}>Save quotes, organize folders, and sync your search history.</p>
           <input value={email} onChange={e => setEmail(e.target.value)} placeholder="Email" type="email" style={inputStyle(t)} />
           <input value={password} onChange={e => setPassword(e.target.value)} placeholder="Password" type="password" onKeyDown={e => e.key === 'Enter' && (authMode === 'login' ? signIn() : signUp())} style={inputStyle(t, { marginTop: 10 })} />
@@ -296,7 +296,10 @@ export default function Home() {
       background: t.bg,
       color: t.text,
       fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", sans-serif',
-      transition: 'background 200ms ease, color 200ms ease',
+      fontSize: 16,
+      fontWeight: 500,
+      lineHeight: 1.7,
+      transition: 'background 150ms ease, color 150ms ease',
     }}>
       {toast && (
         <div style={{ position: 'fixed', left: '50%', bottom: 20, transform: 'translateX(-50%)', background: t.surface2, color: t.text, border: `1px solid ${t.border}`, borderRadius: 999, padding: '8px 14px', fontSize: 12, zIndex: 50 }}>
@@ -346,7 +349,7 @@ export default function Home() {
             <svg width="16" height="16" viewBox="0 0 20 20" fill="none"><path d="M10 2L3 5.5V10c0 4.1 3 7.7 7 8.5 4-.8 7-4.4 7-8.5V5.5L10 2z" stroke="white" strokeWidth="1.5" strokeLinejoin="round"/><path d="M7 10l2 2 4-4" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
           </div>
           <div>
-            <div style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.02em' }}>The Message Search</div>
+            <div style={{ fontSize: 24, fontWeight: 700, letterSpacing: '-0.02em', lineHeight: 1.2 }}>The Message Search</div>
             <div style={{ fontSize: 12, color: t.text2 }}>Apple-inspired study workspace</div>
           </div>
         </div>
@@ -410,7 +413,7 @@ export default function Home() {
                 <>
                   {!searchResults.length && !loading && (
                     <div style={emptyCardStyle(t)}>
-                      <h2 style={{ marginBottom: 6, fontSize: 26, letterSpacing: '-0.02em' }}>Search raw passages</h2>
+                      <h2 style={{ marginBottom: 6, fontSize: 18, fontWeight: 600, letterSpacing: '-0.01em' }}>Search raw passages</h2>
                       <p style={{ color: t.text2 }}>Use semantic + source filters to browse direct quote matches.</p>
                     </div>
                   )}
@@ -434,7 +437,7 @@ export default function Home() {
                 <>
                   {!messages.length && !loading && (
                     <div style={emptyCardStyle(t)}>
-                      <h2 style={{ marginBottom: 6, fontSize: 28, letterSpacing: '-0.03em' }}>Ask anything</h2>
+                      <h1 style={{ marginBottom: 6, fontSize: 24, fontWeight: 700, letterSpacing: '-0.02em', lineHeight: 1.2 }}>Ask anything</h1>
                       <p style={{ color: t.text2, maxWidth: 560, margin: '0 auto' }}>AI responses from William Branham sermons and the KJV Bible, with clean sources and save controls.</p>
                     </div>
                   )}
@@ -452,8 +455,8 @@ export default function Home() {
                           <div style={{ flex: 1, background: t.surface2, borderRadius: 20, padding: '12px 14px', border: `1px solid ${t.border}` }}>
                             <ReactMarkdown components={{
                               p: ({ children }) => <p style={{ margin: '0 0 9px', lineHeight: 1.75 }}>{children}</p>,
-                              h2: ({ children }) => <h2 style={{ fontSize: 16, margin: '10px 0 8px' }}>{children}</h2>,
-                              h3: ({ children }) => <h3 style={{ fontSize: 14, margin: '10px 0 6px' }}>{children}</h3>,
+                              h2: ({ children }) => <h2 style={{ fontSize: 18, fontWeight: 600, margin: '10px 0 8px' }}>{children}</h2>,
+                              h3: ({ children }) => <h3 style={{ fontSize: 16, fontWeight: 600, margin: '10px 0 6px' }}>{children}</h3>,
                               ul: ({ children }) => <ul style={{ paddingLeft: 18, marginBottom: 8 }}>{children}</ul>,
                               li: ({ children }) => <li style={{ marginBottom: 4 }}>{children}</li>,
                               blockquote: ({ children }) => {
@@ -480,8 +483,8 @@ export default function Home() {
                             {m.sources && m.sources.length > 0 && (
                               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
                                 {m.sources.map((s: any, idx: number) => (
-                                  <div key={idx} style={{ background: t.bg, border: `1px solid ${t.border}`, borderRadius: 14, padding: '8px 10px', minWidth: 160 }}>
-                                    <div style={{ fontSize: 12.5, fontWeight: 600 }}>{s.title || 'William Branham Sermon'}</div>
+                                  <div key={idx} style={{ background: t.surface, border: `1px solid ${t.border}`, borderRadius: 14, padding: '8px 10px', minWidth: 160 }}>
+                                    <div style={{ fontSize: 12.5, fontWeight: 600, color: theme.accent }}>{s.title || 'William Branham Sermon'}</div>
                                     <div style={{ fontSize: 11.5, color: t.text2 }}>{s.date || ''}{s.ref ? ` · #${s.ref}` : ''}</div>
                                   </div>
                                 ))}
@@ -525,7 +528,7 @@ export default function Home() {
                         color: mode === v ? (v === 'chat' ? '#fff' : t.text) : t.text2,
                         fontWeight: 600,
                         cursor: 'pointer',
-                        transition: 'all 180ms ease',
+                        transition: 'all 150ms ease',
                       }}
                     >
                       {v === 'chat' ? 'Chat' : 'Search'}
@@ -558,12 +561,12 @@ export default function Home() {
                 borderRadius: 24,
                 background: t.bg,
                 border: `1px solid ${composerFocused ? theme.accent : t.border}`,
-                boxShadow: composerFocused ? `0 8px 28px ${theme.accent}40` : t.shadow,
+                boxShadow: t.shadow,
                 display: 'flex',
                 gap: 8,
                 alignItems: 'flex-end',
                 padding: '10px 10px 10px 14px',
-                transition: 'all 180ms ease',
+                transition: 'all 150ms ease',
               }}>
                 <textarea
                   ref={taRef}
@@ -599,7 +602,7 @@ export default function Home() {
                     display: 'grid',
                     placeItems: 'center',
                     cursor: query.trim() && !loading ? 'pointer' : 'default',
-                    transition: 'all 180ms ease',
+                    transition: 'all 150ms ease',
                   }}
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 2L11 13"/><path d="M22 2L15 22l-4-9-9-4 20-7z"/></svg>
@@ -612,7 +615,7 @@ export default function Home() {
           <div style={{ background: t.surface, borderRadius: 24, border: `1px solid ${t.border}`, boxShadow: t.shadow, padding: 18 }}>
             {!user ? (
               <div style={emptyCardStyle(t)}>
-                <h2 style={{ marginBottom: 6, fontSize: 25, letterSpacing: '-0.02em' }}>Folders</h2>
+                <h2 style={{ marginBottom: 6, fontSize: 18, fontWeight: 600, letterSpacing: '-0.01em' }}>Folders</h2>
                 <p style={{ marginBottom: 12, color: t.text2 }}>Sign in to create folders and save your quotes.</p>
                 <button onClick={() => setAuthMode('login')} style={primaryButtonStyle(false)}>Sign in</button>
               </div>
@@ -638,7 +641,7 @@ export default function Home() {
             ) : (
               <>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                  <h2 style={{ fontSize: 24, letterSpacing: '-0.02em' }}>Folders</h2>
+                  <h2 style={{ fontSize: 18, fontWeight: 600, letterSpacing: '-0.01em' }}>Folders</h2>
                   <button onClick={() => setShowNewFolder(v => !v)} style={pillButton(t)}>{showNewFolder ? 'Close' : '+ New folder'}</button>
                 </div>
 
@@ -709,7 +712,7 @@ function primaryButtonStyle(block = true): React.CSSProperties {
     fontWeight: 600,
     fontSize: 14,
     cursor: 'pointer',
-    transition: 'all 180ms ease',
+    transition: 'all 150ms ease',
   }
 }
 
@@ -723,7 +726,7 @@ function secondaryButtonStyle(t: { surface2: string; border: string; text2: stri
     fontWeight: 600,
     fontSize: 13,
     cursor: 'pointer',
-    transition: 'all 180ms ease',
+    transition: 'all 150ms ease',
   }
 }
 
@@ -747,7 +750,7 @@ function pillButton(t: { surface2: string; border: string; text2: string }): Rea
     fontSize: 12,
     fontWeight: 600,
     cursor: 'pointer',
-    transition: 'all 160ms ease',
+    transition: 'all 150ms ease',
   }
 }
 
