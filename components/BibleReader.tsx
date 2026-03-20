@@ -2,13 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import {
-  BIBLE_ACCENT,
-  BIBLE_BOOKS,
-  BIBLE_SERIF_FONT,
-  BIBLE_VERSE_SELECTED_BG,
-  BIBLE_VERSE_SELECTED_BG_DARK,
-} from '@/lib/bible-books'
+import { BIBLE_BOOKS, BIBLE_SERIF_FONT, BIBLE_VERSE_SELECTED_BG, BIBLE_VERSE_SELECTED_BG_DARK } from '@/lib/bible-books'
 
 type Theme = {
   bg: string
@@ -84,13 +78,14 @@ export default function BibleReader({
   } | null>(null)
   const [refSermons, setRefSermons] = useState<SermonRefRow[]>([])
   const [refLoading, setRefLoading] = useState(false)
+  /** Accordion: which book shows chapter grid (inline below the book row). */
+  const [expandedBook, setExpandedBook] = useState<string | null>(BIBLE_BOOKS[0].name)
 
   const longPressRef = useRef<number | null>(null)
   const longPressFired = useRef(false)
   const verseElRef = useRef<Record<number, HTMLDivElement | null>>({})
   const pendingScrollVerse = useRef<number | null>(null)
 
-  const meta = useMemo(() => BIBLE_BOOKS.find(b => b.name === book) || BIBLE_BOOKS[0], [book])
   const ot = useMemo(() => BIBLE_BOOKS.filter(b => b.testament === 'ot'), [])
   const nt = useMemo(() => BIBLE_BOOKS.filter(b => b.testament === 'nt'), [])
 
@@ -220,22 +215,22 @@ export default function BibleReader({
   const goToResult = (b: string, ch: number, v: number, text: string) => {
     setBook(b)
     setChapter(ch)
+    setExpandedBook(b)
     setBibleSearch('')
     setSearchResults([])
     pendingScrollVerse.current = v
     setSelected({ verse: v, text, sermon_ref_count: 0 })
   }
 
-  const chapterNumbers = useMemo(() => Array.from({ length: meta.chapters }, (_, i) => i + 1), [meta.chapters])
-
   const selectedBg = darkMode ? BIBLE_VERSE_SELECTED_BG_DARK : BIBLE_VERSE_SELECTED_BG
+
+  const verseNumColor = darkMode ? 'rgba(255,255,255,0.5)' : '#525252'
 
   const verseNumStyle: React.CSSProperties = {
     fontFamily: BIBLE_SERIF_FONT,
-    color: BIBLE_ACCENT,
+    color: verseNumColor,
     fontSize: Math.max(13, fontSize * 0.88),
     fontWeight: 600,
-    opacity: 0.92,
     flexShrink: 0,
     minWidth: 32,
     lineHeight: 1.6,
@@ -252,141 +247,88 @@ export default function BibleReader({
     wordBreak: 'break-word',
   }
 
-  const bookSelect = (
-    <select
-      value={book}
-      onChange={e => {
-        const next = e.target.value
-        setBook(next)
-        const m = BIBLE_BOOKS.find(x => x.name === next)
-        if (m && chapter > m.chapters) setChapter(1)
-      }}
-      style={{
-        width: '100%',
-        padding: '10px 12px',
-        borderRadius: 12,
-        border: `1px solid ${t.border}`,
-        background: t.bg,
-        color: t.text,
-        fontSize: '0.9375em',
-        fontWeight: 600,
-        marginBottom: 10,
-      }}
-    >
-      <optgroup label="Old Testament">
-        {ot.map(b => (
-          <option key={b.name} value={b.name}>
-            {b.name}
-          </option>
-        ))}
-      </optgroup>
-      <optgroup label="New Testament">
-        {nt.map(b => (
-          <option key={b.name} value={b.name}>
-            {b.name}
-          </option>
-        ))}
-      </optgroup>
-    </select>
+  const renderBookAccordion = (books: typeof ot, sectionTitle: string) => (
+    <>
+      <div style={{ fontSize: 11, color: t.text3, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6, marginTop: sectionTitle === 'New Testament' ? 12 : 0 }}>{sectionTitle}</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+        {books.map(b => {
+          const isReading = book === b.name
+          const isOpen = expandedBook === b.name
+          return (
+            <div key={b.name}>
+              <button
+                type="button"
+                onClick={() => {
+                  if (isOpen) {
+                    setExpandedBook(null)
+                  } else {
+                    setExpandedBook(b.name)
+                    setBook(b.name)
+                    if (chapter > b.chapters) setChapter(1)
+                  }
+                }}
+                style={{
+                  width: '100%',
+                  textAlign: 'left',
+                  padding: '8px 10px',
+                  borderRadius: 10,
+                  border: 'none',
+                  background: isReading ? (darkMode ? 'rgba(255,255,255,0.07)' : t.bg3) : 'transparent',
+                  color: t.text,
+                  fontWeight: isReading ? 600 : 500,
+                  fontSize: 13,
+                  cursor: 'pointer',
+                }}
+              >
+                {b.name}
+              </button>
+              {isOpen && (
+                <div
+                  style={{
+                    padding: '6px 8px 10px 12px',
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fill, minmax(36px, 1fr))',
+                    gap: 6,
+                  }}
+                >
+                  {Array.from({ length: b.chapters }, (_, i) => i + 1).map(c => {
+                    const active = isReading && chapter === c
+                    return (
+                      <button
+                        key={c}
+                        type="button"
+                        onClick={() => {
+                          setBook(b.name)
+                          setChapter(c)
+                        }}
+                        style={{
+                          padding: '7px 0',
+                          borderRadius: 8,
+                          border: `1px solid ${active ? t.text2 : t.border}`,
+                          background: active ? (darkMode ? 'rgba(255,255,255,0.1)' : t.bg2) : t.bg,
+                          color: t.text2,
+                          fontWeight: active ? 700 : 500,
+                          fontSize: 12,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {c}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </>
   )
 
   const bookList = (
-    <div style={{ paddingRight: isMobile ? 0 : 8 }}>
-      {!isMobile && (
-        <>
-          <div style={{ fontSize: 11, color: t.text3, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Old Testament</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 12 }}>
-            {ot.map(b => (
-              <button
-                key={b.name}
-                type="button"
-                onClick={() => {
-                  setBook(b.name)
-                  if (chapter > b.chapters) setChapter(1)
-                }}
-                style={{
-                  textAlign: 'left',
-                  padding: '7px 10px',
-                  borderRadius: 10,
-                  border: 'none',
-                  background: b.name === book ? 'rgba(134, 205, 130, 0.2)' : 'transparent',
-                  color: b.name === book ? BIBLE_ACCENT : t.text2,
-                  fontWeight: b.name === book ? 600 : 500,
-                  fontSize: 13,
-                  cursor: 'pointer',
-                }}
-              >
-                {b.name}
-              </button>
-            ))}
-          </div>
-          <div style={{ fontSize: 11, color: t.text3, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>New Testament</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            {nt.map(b => (
-              <button
-                key={b.name}
-                type="button"
-                onClick={() => {
-                  setBook(b.name)
-                  if (chapter > b.chapters) setChapter(1)
-                }}
-                style={{
-                  textAlign: 'left',
-                  padding: '7px 10px',
-                  borderRadius: 10,
-                  border: 'none',
-                  background: b.name === book ? 'rgba(134, 205, 130, 0.2)' : 'transparent',
-                  color: b.name === book ? BIBLE_ACCENT : t.text2,
-                  fontWeight: b.name === book ? 600 : 500,
-                  fontSize: 13,
-                  cursor: 'pointer',
-                }}
-              >
-                {b.name}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-      {isMobile && bookSelect}
-      <div
-        style={{
-          fontSize: 11,
-          color: t.text3,
-          textTransform: 'uppercase',
-          letterSpacing: '0.06em',
-          margin: '14px 0 8px',
-        }}
-      >
-        Chapter
-      </div>
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(40px, 1fr))',
-          gap: 6,
-        }}
-      >
-        {chapterNumbers.map(c => (
-          <button
-            key={c}
-            type="button"
-            onClick={() => setChapter(c)}
-            style={{
-              padding: '8px 0',
-              borderRadius: 10,
-              border: `1px solid ${c === chapter ? BIBLE_ACCENT : t.border}`,
-              background: c === chapter ? 'rgba(134, 205, 130, 0.25)' : t.bg2,
-              color: c === chapter ? t.text : t.text2,
-              fontWeight: c === chapter ? 700 : 500,
-              fontSize: 13,
-              cursor: 'pointer',
-            }}
-          >
-            {c}
-          </button>
-        ))}
-      </div>
+    <div style={{ paddingRight: 0 }}>
+      {renderBookAccordion(ot, 'Old Testament')}
+      {renderBookAccordion(nt, 'New Testament')}
     </div>
   )
 
@@ -455,7 +397,7 @@ export default function BibleReader({
                     color: t.text,
                   }}
                 >
-                  <div style={{ fontWeight: 600, color: BIBLE_ACCENT, fontSize: 13, marginBottom: 4 }}>
+                  <div style={{ fontWeight: 600, color: t.text2, fontSize: 13, marginBottom: 4 }}>
                     {r.book} {r.chapter}:{r.verse}
                   </div>
                   <div style={{ fontFamily: BIBLE_SERIF_FONT, fontSize: 14, color: t.text2, lineHeight: 1.5 }}>{r.text}</div>
@@ -551,7 +493,7 @@ export default function BibleReader({
                             borderRadius: 999,
                             border: 'none',
                             padding: 0,
-                            background: BIBLE_ACCENT,
+                            background: t.text3,
                             cursor: 'pointer',
                             flexShrink: 0,
                           }}
@@ -609,7 +551,7 @@ export default function BibleReader({
                           padding: '8px 14px',
                           borderRadius: 999,
                           border: 'none',
-                          background: BIBLE_ACCENT,
+                          background: '#4a6b52',
                           color: '#fff',
                           fontWeight: 600,
                           fontSize: 13,
@@ -655,7 +597,7 @@ export default function BibleReader({
             <h3 style={{ margin: '0 0 8px', fontSize: 17, color: t.text }}>Brother Branham &amp; this verse</h3>
             <p style={{ margin: '0 0 14px', color: t.text2, fontSize: 14, lineHeight: 1.5 }}>
               Brother Branham referenced <strong>{book} {chapter}:{refPanel.verse}</strong> in approximately{' '}
-              <strong style={{ color: BIBLE_ACCENT }}>{refPanel.count}</strong> sermon
+              <strong style={{ color: t.text }}>{refPanel.count}</strong> sermon
               {refPanel.count === 1 ? '' : 's'} (per <code>sermon_ref_count</code>).
             </p>
             {refLoading && <p style={{ color: t.text2 }}>Loading matching sermons…</p>}
@@ -684,7 +626,7 @@ export default function BibleReader({
                     }}
                   >
                     <div style={{ fontWeight: 600, fontSize: 14 }}>{s.title}</div>
-                    <div style={{ fontSize: 12, color: BIBLE_ACCENT, marginTop: 4 }}>#{s.reference_code}</div>
+                    <div style={{ fontSize: 12, color: t.text2, marginTop: 4 }}>#{s.reference_code}</div>
                     <div style={{ fontSize: 12, color: t.text3, marginTop: 2 }}>{s.date}</div>
                   </button>
                 </li>

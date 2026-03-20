@@ -2,8 +2,8 @@
 export type BibleBookMeta = { name: string; chapters: number; testament: 'ot' | 'nt' }
 
 export const BIBLE_ACCENT = '#86CD82'
-export const BIBLE_VERSE_SELECTED_BG = 'rgba(134, 205, 130, 0.28)'
-export const BIBLE_VERSE_SELECTED_BG_DARK = 'rgba(134, 205, 130, 0.18)'
+export const BIBLE_VERSE_SELECTED_BG = 'rgba(82, 82, 91, 0.12)'
+export const BIBLE_VERSE_SELECTED_BG_DARK = 'rgba(255,255,255,0.08)'
 
 export const BIBLE_BOOKS: BibleBookMeta[] = [
   { name: 'Genesis', chapters: 50, testament: 'ot' },
