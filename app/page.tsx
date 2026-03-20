@@ -781,11 +781,11 @@ export default function Home() {
                         <HomeLanding t={t} onPick={(m, q) => { setMode(m); setQuery(q); setTimeout(() => taRef.current?.focus(), 0) }} />
                       )}
                       {searchResults.map((r, i) => (
-                        <div key={i} style={{ borderBottom: `1px solid ${t.border}`, padding: '12px 4px', minWidth: 0 }}>
-                          <p style={{ margin: 0, borderLeft: `3px solid ${CTA}`, paddingLeft: 12, fontStyle: 'italic', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
+                        <div key={i} style={{ ...card(t), marginBottom: 12, minWidth: 0, padding: 'clamp(14px, 2.3vw, 20px)' }}>
+                          <p style={{ margin: 0, borderLeft: `3px solid ${CTA}`, paddingLeft: 'clamp(12px, 1.8vw, 18px)', paddingRight: 'clamp(2px, 0.8vw, 8px)', lineHeight: 1.7, fontStyle: 'italic', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
                             "{highlightMatches(r.quote_text, lastSearchQuery, searchMatchType)}"
                           </p>
-                          <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', flexWrap: 'wrap', minWidth: 0 }}>
+                          <div style={{ marginTop: 12, display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', flexWrap: 'wrap', minWidth: 0 }}>
                             <div style={{ minWidth: 0, flex: '1 1 140px' }}>
                               <div style={{ fontWeight: 600, color: headingTone, fontSize: '0.875em', overflowWrap: 'anywhere' }}>{r.source_title || (r.source === 'bible' ? 'KJV Bible' : 'William Branham Sermon')}</div>
                               <div style={{ color: t.text2, fontSize: '0.8125em' }}>{r.source_date || (r.source === 'bible' ? 'KJV' : '')}</div>
@@ -816,7 +816,7 @@ export default function Home() {
                               <div style={{ width: 28, height: 28, borderRadius: 10, border: `1px solid ${t.border}`, background: t.bg3, display: 'grid', placeItems: 'center', flexShrink: 0 }}>
                                 <svg width="12" height="12" viewBox="0 0 20 20" fill="none"><path d="M10 2L3 5.5V10c0 4.1 3 7.7 7 8.5 4-.8 7-4.4 7-8.5V5.5L10 2z" stroke={CTA} strokeWidth="1.5" strokeLinejoin="round"/></svg>
                               </div>
-                              <div style={{ flex: 1, minWidth: 0, background: t.bg2, borderRadius: 14, border: `1px solid ${t.border}`, padding: '10px 12px', overflow: 'hidden' }}>
+                              <div style={{ flex: 1, minWidth: 0, overflow: 'hidden' }}>
                                 <ReactMarkdown components={{
                                   p: ({ children }) => <p style={{ margin: '0 0 8px', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{children}</p>,
                                   h2: ({ children }) => <h2 style={{ ...h2, marginTop: 12 }}>{children}</h2>,
