@@ -82,6 +82,12 @@ const RELATED_QUERY_TERMS: Record<string, string[]> = {
   sin: ['repentance', 'forgiveness', 'atonement', 'new birth'],
 }
 
+function isLikelyBibleRef(title?: string): boolean {
+  const t = String(title || '').trim()
+  if (!t) return false
+  return /\b\d{1,3}:\d{1,3}\b/.test(t)
+}
+
 const COLORS = ['#A0EEC0', '#72A276', '#525252', '#404040', '#262626', '#000000']
 
 const ui = {
@@ -282,9 +288,9 @@ function HomeLanding({
 export default function Home() {
   const [view, setView] = useState<View>('chat')
   const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [darkMode, setDarkMode] = useState(false)
+  const [darkMode, setDarkMode] = useState(true)
   const [fontSize, setFontSize] = useState(16)
-  const [accentTheme, setAccentTheme] = useState<AccentTheme>('green')
+  const [accentTheme, setAccentTheme] = useState<AccentTheme>('blue')
 
   const [user, setUser] = useState<any>(null)
   const [authMode, setAuthMode] = useState<'login' | 'signup' | null>(null)
@@ -1447,29 +1453,29 @@ export default function Home() {
                                   </div>
                                 )}
 
-                                {m.sources && m.sources.length > 0 && (
-                                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 14, minWidth: 0 }}>
-                                    {m.sources.map((s: any, idx: number) => (
-                                      <button
-                                        key={idx}
-                                        type="button"
-                                        onClick={() => {
-                                          if (s?.source !== 'message') return
-                                          openSermonDrawer({
-                                            title: s?.title || '',
-                                            date: s?.date || '',
-                                            ref: s?.ref || '',
-                                            quote: (m.exact_passages?.[0]?.text || extractSavableQuote(m.content || '')).trim(),
-                                          })
-                                        }}
-                                        style={{ background: t.bg3, border: `1px solid ${t.border}`, borderRadius: 12, padding: '10px 12px', minWidth: 0, maxWidth: '100%', flex: '1 1 140px', textAlign: 'left', cursor: s?.source === 'message' ? 'pointer' : 'default' }}
-                                      >
-                                        <div style={{ fontSize: '0.875em', fontWeight: 600, color: headingTone, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{s.title || 'William Branham Sermon'}</div>
-                                        <div style={{ fontSize: '0.8125em', color: t.text2, overflowWrap: 'anywhere' }}>{s.date || ''}{s.ref ? ` · #${s.ref}` : ''}</div>
-                                      </button>
-                                    ))}
-                                  </div>
-                                )}
+                                {(() => {
+                                  const scriptureRefs = [...new Set(
+                                    (m.exact_passages || [])
+                                      .filter(p => p.source === 'bible' || isLikelyBibleRef(p.title))
+                                      .map(p => String(p.title || '').trim())
+                                      .filter(Boolean)
+                                  )].slice(0, 8)
+                                  if (!scriptureRefs.length) return null
+                                  return (
+                                    <div style={{ marginTop: 14, minWidth: 0 }}>
+                                      <div style={{ fontSize: 11, letterSpacing: '0.04em', textTransform: 'uppercase', color: t.text3, fontWeight: 700, marginBottom: 6 }}>
+                                        Relevant Scriptures
+                                      </div>
+                                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                                        {scriptureRefs.map(ref => (
+                                          <span key={ref} style={{ ...pillBtn(t), cursor: 'default' }}>
+                                            {ref}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )
+                                })()}
 
                                 <div style={{ display: 'flex', gap: 6, marginTop: 14, flexWrap: 'wrap', minWidth: 0 }}>
                                   <button type="button" onClick={() => copyText(m.content, i)} style={pillBtn(t)}>{copied === i ? 'Copied' : 'Copy'}</button>
