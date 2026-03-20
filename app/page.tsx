@@ -929,7 +929,7 @@ export default function Home() {
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.35)', zIndex: 180, display: 'grid', placeItems: 'center' }}>
           <div style={{ width: 'min(430px, calc(100vw - 32px))', maxWidth: '100%', boxSizing: 'border-box', background: t.bg2, border: `1px solid ${t.border}`, borderRadius: 16, padding: 18, boxShadow: t.shadow }}>
             <h3 style={{ fontSize: '1.125em', fontWeight: 600, marginBottom: 8, overflowWrap: 'anywhere' }}>Save Quote</h3>
-            <p style={{ borderLeft: `3px solid ${CTA}`, paddingLeft: 10, fontStyle: 'italic', marginBottom: 12 }}>"{saveModal.text.slice(0, 220)}{saveModal.text.length > 220 ? '...' : ''}"</p>
+            <p style={{ borderLeft: `3px solid ${CTA}`, paddingLeft: 10, marginBottom: 12 }}>"{saveModal.text.slice(0, 220)}{saveModal.text.length > 220 ? '...' : ''}"</p>
             {folders.length > 0 && (
               <>
                 <p style={{ fontSize: 12, color: t.text2, marginBottom: 6 }}>Folder (optional)</p>
@@ -1233,7 +1233,7 @@ export default function Home() {
                       )}
                       {sortedSearchResults.map((r, i) => (
                         <div key={i} style={{ ...card(t), marginBottom: 12, minWidth: 0, padding: 'clamp(14px, 2.3vw, 20px)' }}>
-                          <p style={{ margin: 0, borderLeft: `3px solid ${CTA}`, paddingLeft: 'clamp(12px, 1.8vw, 18px)', paddingRight: 'clamp(2px, 0.8vw, 8px)', lineHeight: 1.7, fontStyle: 'italic', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
+                          <p style={{ margin: 0, borderLeft: `3px solid ${CTA}`, paddingLeft: 'clamp(12px, 1.8vw, 18px)', paddingRight: 'clamp(2px, 0.8vw, 8px)', lineHeight: 1.7, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>
                             "{highlightMatches(r.quote_text, lastSearchQuery, searchMatchType)}"
                           </p>
                           <div style={{ marginTop: 12, display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center', flexWrap: 'wrap', minWidth: 0 }}>
@@ -1286,7 +1286,7 @@ export default function Home() {
                                     const quoteText = getPlainTextFromNode(children).trim()
                                     return (
                                       <div style={{ position: 'relative', margin: '14px 0 18px' }}>
-                                        <blockquote style={{ margin: 0, borderLeft: `3px solid ${CTA}`, paddingLeft: 14, paddingRight: 34, lineHeight: 1.8, fontWeight: 440, fontStyle: 'italic', overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{children}</blockquote>
+                                        <blockquote style={{ margin: 0, borderLeft: `3px solid ${CTA}`, paddingLeft: 14, paddingRight: 34, lineHeight: 1.8, fontWeight: 440, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{children}</blockquote>
                                         <button onClick={() => { if (!user) return showToast('Sign in to save quotes'); if (!quoteText) return; setSaveModal({ text: quoteText, title: m.sources?.[0]?.title || 'William Branham Sermon', date: m.sources?.[0]?.date || '' }) }} style={{ ...pillBtn(t), position: 'absolute', top: -1, right: 0, width: 28, height: 28, padding: 0, display: 'grid', placeItems: 'center' }}>
                                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="m19 21-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
                                         </button>
@@ -1477,7 +1477,7 @@ export default function Home() {
                     </div>
                     {folderQuotes.length === 0 ? <p style={{ color: t.text2 }}>No quotes in this folder.</p> : folderQuotes.map(q => (
                       <div key={q.id} style={card(t)}>
-                        <p style={{ margin: 0, borderLeft: `3px solid ${CTA}`, paddingLeft: 10, fontStyle: 'italic' }}>"{q.quote_text}"</p>
+                        <p style={{ margin: 0, borderLeft: `3px solid ${CTA}`, paddingLeft: 10 }}>"{q.quote_text}"</p>
                         <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
                           <div>
                             <div style={{ fontWeight: 600, color: headingTone, fontSize: 13 }}>{q.source_title}</div>
@@ -1555,7 +1555,7 @@ export default function Home() {
 
                     {savedQuotes.length === 0 ? <p style={{ color: t.text2 }}>No quotes saved yet.</p> : savedQuotes.map(q => (
                       <div key={q.id} style={card(t)}>
-                        <p style={{ margin: 0, borderLeft: `3px solid ${CTA}`, paddingLeft: 10, fontStyle: 'italic' }}>"{q.quote_text}"</p>
+                        <p style={{ margin: 0, borderLeft: `3px solid ${CTA}`, paddingLeft: 10 }}>"{q.quote_text}"</p>
                         <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
                           <div>
                             <div style={{ fontWeight: 600, color: headingTone, fontSize: 13 }}>{q.source_title}</div>
