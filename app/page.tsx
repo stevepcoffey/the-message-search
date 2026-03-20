@@ -363,30 +363,47 @@ export default function Home() {
         </div>
       </header>
 
-      <div style={{ maxWidth: 1080, margin: '0 auto', padding: '22px 16px 26px' }}>
-        <div style={{ display: 'inline-flex', gap: 4, padding: 4, borderRadius: 999, background: t.surface2, marginBottom: 16 }}>
-          {(['chat', 'folders'] as MainTab[]).map(v => (
-            <button
-              key={v}
-              onClick={() => setTab(v)}
-              style={{
-                borderRadius: 999,
-                border: 'none',
-                padding: '9px 16px',
-                minWidth: 110,
-                background: tab === v ? theme.accent : 'transparent',
-                color: tab === v ? '#fff' : t.text2,
-                fontWeight: 600,
-                cursor: 'pointer',
-                transition: 'all 180ms ease',
-              }}
-            >
-              {v === 'chat' ? 'Chat / Search' : 'Folders'}
-            </button>
-          ))}
-        </div>
+      <div style={{ maxWidth: 1240, margin: '0 auto', padding: '16px 16px 26px', display: 'flex', gap: 14 }}>
+        <aside style={{ width: 260, background: t.surface, border: `1px solid ${t.border}`, borderRadius: 24, boxShadow: t.shadow, padding: 12, height: 'calc(100vh - 118px)', position: 'sticky', top: 84 }}>
+          <button onClick={() => { setTab('chat'); setMode('chat'); setMessages([]); setSearchResults([]) }} style={{ ...primaryButtonStyle(false), width: '100%', marginBottom: 10 }}>+ New search</button>
 
-        {tab === 'chat' ? (
+          <div style={{ display: 'grid', gap: 6, marginBottom: 12 }}>
+            <button onClick={() => setTab('chat')} style={{ ...pillButton(t), justifyContent: 'flex-start', textAlign: 'left', background: tab === 'chat' ? `${theme.accent}28` : t.surface2, borderColor: tab === 'chat' ? theme.accent : t.border, color: tab === 'chat' ? theme.accent : t.text2 }}>Chat / Search</button>
+            <button onClick={() => setTab('folders')} style={{ ...pillButton(t), justifyContent: 'flex-start', textAlign: 'left', background: tab === 'folders' ? `${theme.accent}28` : t.surface2, borderColor: tab === 'folders' ? theme.accent : t.border, color: tab === 'folders' ? theme.accent : t.text2 }}>Folders</button>
+          </div>
+
+          <div style={{ borderTop: `1px solid ${t.border}`, paddingTop: 10 }}>
+            <div style={{ fontSize: 11, color: t.text2, textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 6 }}>Folders</div>
+            <div style={{ maxHeight: 260, overflowY: 'auto', paddingRight: 2 }}>
+              {folders.length === 0 ? (
+                <p style={{ fontSize: 12, color: t.text2, margin: '6px 4px' }}>No folders yet</p>
+              ) : folders.map(f => (
+                <button key={f.id} onClick={() => { setTab('folders'); setActiveFolder(f) }} style={{ width: '100%', border: 'none', background: 'transparent', padding: '7px 8px', borderRadius: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, color: t.text }}>
+                  <span style={{ width: 9, height: 9, borderRadius: 999, background: f.color }} />
+                  <span style={{ flex: 1, textAlign: 'left', fontSize: 12.5, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{f.name}</span>
+                  <span style={{ fontSize: 11, color: t.text2 }}>{savedQuotes.filter(q => q.folder_id === f.id).length}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ borderTop: `1px solid ${t.border}`, marginTop: 10, paddingTop: 10 }}>
+            {!user ? (
+              <>
+                <p style={{ fontSize: 12, color: t.text2, marginBottom: 8 }}>Sign in to save and organize quotes.</p>
+                <button onClick={() => setAuthMode('login')} style={{ ...primaryButtonStyle(false), width: '100%' }}>Sign in</button>
+              </>
+            ) : (
+              <>
+                <p style={{ fontSize: 12, color: t.text2, marginBottom: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.email}</p>
+                <button onClick={signOut} style={{ ...secondaryButtonStyle(t), width: '100%' }}>Sign out</button>
+              </>
+            )}
+          </div>
+        </aside>
+
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {tab === 'chat' ? (
           <div style={{ background: t.surface, borderRadius: 24, border: `1px solid ${t.border}`, boxShadow: t.shadow, overflow: 'hidden' }}>
             <div style={{ minHeight: 420, maxHeight: '62vh', overflowY: 'auto', padding: '22px 18px' }}>
               {mode === 'search' ? (
@@ -659,6 +676,7 @@ export default function Home() {
             )}
           </div>
         )}
+        </div>
       </div>
     </div>
   )
