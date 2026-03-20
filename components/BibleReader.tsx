@@ -216,8 +216,6 @@ export default function BibleReader({
     setBook(b)
     setChapter(ch)
     setExpandedBook(b)
-    setBibleSearch('')
-    setSearchResults([])
     pendingScrollVerse.current = v
     setSelected({ verse: v, text, sermon_ref_count: 0 })
   }
