@@ -8,6 +8,21 @@ function normalizeQuery(raw: unknown): string {
   return String(raw || '').replace(/[%_]/g, ' ').trim()
 }
 
+const STOP_WORDS = new Set([
+  'what', 'is', 'are', 'the', 'a', 'an', 'about', 'for', 'to', 'of', 'in', 'on', 'and', 'or', 'me', 'my',
+  'with', 'that', 'this', 'those', 'these', 'scriptures', 'verse', 'verses',
+])
+
+function queryTokens(query: string): string[] {
+  return [...new Set(
+    query
+      .toLowerCase()
+      .split(/\s+/)
+      .map(w => w.replace(/[^a-z0-9]/g, '').trim())
+      .filter(w => w.length >= 3 && !STOP_WORDS.has(w))
+  )]
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
@@ -61,19 +76,54 @@ export async function POST(request: NextRequest) {
     }
 
     if (!results.length) {
-      const { data, error } = await supabaseServer
+      const tokens = queryTokens(query).slice(0, 8)
+      const primary = [...tokens].sort((a, b) => b.length - a.length)[0] || query
+      const keywordSet = new Set([query.toLowerCase(), ...tokens])
+
+      const { data: primaryData, error: primaryErr } = await supabaseServer
         .from('bible_verses')
         .select('book, chapter, verse, text')
-        .ilike('text', `%${query}%`)
-        .limit(100)
+        .ilike('text', `%${primary}%`)
+        .limit(120)
+      if (primaryErr) return NextResponse.json({ error: primaryErr.message }, { status: 500 })
 
-      if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-      results = ((data || []) as any[]).map((r: any) => ({
-        book: String(r.book || ''),
-        chapter: Number(r.chapter || 0),
-        verse: Number(r.verse || 0),
-        text: String(r.text || ''),
-      }))
+      const orClause = tokens.map(t => `text.ilike.%${t}%`).join(',')
+      let extraData: any[] = []
+      if ((primaryData || []).length < 25 && orClause) {
+        const { data } = await supabaseServer
+          .from('bible_verses')
+          .select('book, chapter, verse, text')
+          .or(orClause)
+          .limit(160)
+        extraData = data || []
+      }
+
+      const merged = [...(primaryData || []), ...extraData]
+      const scored = merged
+        .map((r: any) => {
+          const text = String(r?.text || '')
+          const lower = text.toLowerCase()
+          const score = [...keywordSet].reduce((n, t) => (lower.includes(t) ? n + 1 : n), 0)
+          return {
+            book: String(r?.book || ''),
+            chapter: Number(r?.chapter || 0),
+            verse: Number(r?.verse || 0),
+            text,
+            score,
+          }
+        })
+        .filter(r => r.book && Number.isFinite(r.chapter) && Number.isFinite(r.verse) && r.text && r.score > 0)
+        .sort((a, b) => b.score - a.score)
+
+      const seen = new Set<string>()
+      results = []
+      for (const r of scored) {
+        const key = `${r.book}|${r.chapter}|${r.verse}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        results.push({ book: r.book, chapter: r.chapter, verse: r.verse, text: r.text })
+        if (results.length >= 100) break
+      }
     }
 
     return NextResponse.json({ results })

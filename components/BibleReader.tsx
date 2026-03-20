@@ -168,6 +168,8 @@ export default function BibleReader({
       cancelled = true
     }
   }, [debouncedSearch, showToast])
+  const activeSearchQuery = sanitizeSearch(debouncedSearch)
+  const hasActiveSearch = activeSearchQuery.length >= 2
 
   useEffect(() => {
     const v = pendingScrollVerse.current
@@ -372,7 +374,7 @@ export default function BibleReader({
             outline: 'none',
           }}
         />
-        {(searchLoading || searchResults.length > 0) && (
+        {(searchLoading || hasActiveSearch) && (
           <div
             style={{
               marginTop: 10,
@@ -384,6 +386,11 @@ export default function BibleReader({
             }}
           >
             {searchLoading && <p style={{ padding: 12, color: t.text2, margin: 0 }}>Searching…</p>}
+            {!searchLoading && hasActiveSearch && searchResults.length === 0 && (
+              <p style={{ padding: 12, color: t.text2, margin: 0 }}>
+                No verses found for "{activeSearchQuery}". Try a shorter phrase or key words.
+              </p>
+            )}
             {!searchLoading &&
               searchResults.map((r, i) => (
                 <button
