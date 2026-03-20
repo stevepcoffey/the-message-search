@@ -69,7 +69,7 @@ function getAnthropicText(content: any): string {
 
 function buildLocalFallbackAnswer(query: string, rows: HybridRow[]): string {
   if (!rows.length) {
-    return 'I could not find enough matching material for that query yet. Please try a more specific wording or sermon reference.'
+    return `I could not find enough matching material in the current library for "${query}" yet. Try a more exact sermon title, reference code, or a shorter phrase from the quote.`
   }
   const top = rows.slice(0, 3)
   const intro = `Here are the most relevant matches I found for "${query}":`
@@ -78,30 +78,44 @@ function buildLocalFallbackAnswer(query: string, rows: HybridRow[]): string {
     const excerpt = r.text.replace(/\s+/g, ' ').trim().slice(0, 260)
     return `${i + 1}. ${source}\n> ${excerpt}${r.text.length > 260 ? '...' : ''}`
   }).join('\n\n')
-  return `${intro}\n\n${bullets}\n\nTry narrowing your question to a specific sermon, quote phrase, or scripture for deeper synthesis.`
+  return `${intro}\n\n${bullets}\n\nTry narrowing your question to a specific sermon, quote phrase, or scripture.`
 }
 
 async function keywordFallbackRows(query: string): Promise<HybridRow[]> {
   const q = query.trim()
   if (!q) return []
-  const seed = q.split(/\s+/)[0] || q
+  const tokens = Array.from(
+    new Set(
+      q
+        .toLowerCase()
+        .split(/\s+/)
+        .map(t => t.replace(/[^a-z0-9]/gi, '').trim())
+        .filter(t => t.length >= 3)
+    )
+  ).slice(0, 6)
+  const ilikeParts = [q, ...tokens].filter(Boolean).map(t => `text.ilike.%${t}%`)
+  const orClause = ilikeParts.join(',')
 
-  const { data: sermonMatches } = await supabaseServer
+  let sermonQuery = supabaseServer
     .from('sermon_chunks')
     .select('text, sermons(title, date, reference_code)')
-    .ilike('text', `%${seed}%`)
     .limit(40)
+  if (orClause) sermonQuery = sermonQuery.or(orClause)
+  const { data: sermonMatches } = await sermonQuery
 
-  const { data: bibleMatches } = await supabaseServer
+  let bibleQuery = supabaseServer
     .from('bible_verses')
     .select('book,chapter,verse,text')
-    .ilike('text', `%${seed}%`)
     .limit(25)
+  if (orClause) bibleQuery = bibleQuery.or(orClause)
+  const { data: bibleMatches } = await bibleQuery
 
   const out: HybridRow[] = []
   for (const row of sermonMatches || []) {
     const text = toAscii(row?.text || '')
-    if (!text.toLowerCase().includes(q.toLowerCase())) continue
+    const lower = text.toLowerCase()
+    const matchCount = tokens.reduce((n, t) => (lower.includes(t) ? n + 1 : n), 0)
+    if (!lower.includes(q.toLowerCase()) && matchCount === 0) continue
     const sermonMeta = Array.isArray(row?.sermons) ? row?.sermons?.[0] : row?.sermons
     out.push({
       source: 'message',
@@ -118,7 +132,9 @@ async function keywordFallbackRows(query: string): Promise<HybridRow[]> {
 
   for (const row of bibleMatches || []) {
     const text = toAscii(row?.text || '')
-    if (!text.toLowerCase().includes(q.toLowerCase())) continue
+    const lower = text.toLowerCase()
+    const matchCount = tokens.reduce((n, t) => (lower.includes(t) ? n + 1 : n), 0)
+    if (!lower.includes(q.toLowerCase()) && matchCount === 0) continue
     out.push({
       source: 'bible',
       text,
@@ -267,6 +283,7 @@ export async function POST(request: NextRequest) {
           keyword_score: Number(row.keyword_score || 0),
           hybrid_score: Number(row.hybrid_score || 0),
         } as HybridRow))
+        if (!ranked.length) ranked = await keywordFallbackRows(query)
       }
     }
 
@@ -284,6 +301,9 @@ export async function POST(request: NextRequest) {
 You are a William Branham sermon research assistant.
 Use only the context items below. Do not invent quotes, sermons, or scripture text.
 Never say "the passages provided".
+Never recommend external sources, websites, books, apps, or ministries.
+Do not tell the user to search elsewhere.
+If matches are limited, still answer from available context and ask for a narrower in-app query.
 
 Write the response in this exact structure:
 1) Opening summary paragraph (natural, direct)
@@ -295,7 +315,7 @@ Write the response in this exact structure:
 4) Brief synthesis paragraph at the end
 
 Context:
-${passages || 'No passages found.'}
+${passages || '[No strong matches in current library context]'}
     `)
 
     let response = ''
