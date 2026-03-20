@@ -506,9 +506,13 @@ export default function Home() {
     try {
       const res = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: q }) })
       const data = await res.json()
-      setMessages([...next, { role: 'assistant', content: data.response, sources: data.sources }])
-    } catch {
-      setMessages([...next, { role: 'assistant', content: 'Something went wrong.', sources: [] }])
+      if (!res.ok) throw new Error(data?.error || 'Chat failed')
+      const content = typeof data?.response === 'string' && data.response.trim()
+        ? data.response
+        : 'I could not generate a response for that query yet. Please try again with a more specific phrase.'
+      setMessages([...next, { role: 'assistant', content, sources: Array.isArray(data?.sources) ? data.sources : [] }])
+    } catch (error: any) {
+      setMessages([...next, { role: 'assistant', content: error?.message || 'Something went wrong.', sources: [] }])
     }
     setLoading(false)
   }

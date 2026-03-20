@@ -67,6 +67,20 @@ function getAnthropicText(content: any): string {
     .trim()
 }
 
+function buildLocalFallbackAnswer(query: string, rows: HybridRow[]): string {
+  if (!rows.length) {
+    return 'I could not find enough matching material for that query yet. Please try a more specific wording or sermon reference.'
+  }
+  const top = rows.slice(0, 3)
+  const intro = `Here are the most relevant matches I found for "${query}":`
+  const bullets = top.map((r, i) => {
+    const source = `${r.title}${r.date ? ` (${r.date})` : ''}${r.ref ? ` #${r.ref}` : ''}`
+    const excerpt = r.text.replace(/\s+/g, ' ').trim().slice(0, 260)
+    return `${i + 1}. ${source}\n> ${excerpt}${r.text.length > 260 ? '...' : ''}`
+  }).join('\n\n')
+  return `${intro}\n\n${bullets}\n\nTry narrowing your question to a specific sermon, quote phrase, or scripture for deeper synthesis.`
+}
+
 function extractReferenceCode(query: string): string | null {
   const m = query.match(/\b\d{2}-\d{4}[A-Z]?\b/i)
   return m ? m[0].toUpperCase() : null
@@ -245,14 +259,19 @@ Context:
 ${passages || 'No passages found.'}
     `)
 
-    const ai = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 2048,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: toAscii(query) }],
-    })
-
-    const response = getAnthropicText(ai?.content) || 'I could not find enough matching material for that query yet. Please try a more specific wording or sermon reference.'
+    let response = ''
+    try {
+      const ai = await anthropic.messages.create({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 2048,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: toAscii(query) }],
+      })
+      response = getAnthropicText(ai?.content)
+    } catch {
+      response = ''
+    }
+    if (!response) response = buildLocalFallbackAnswer(query, reranked)
 
     return NextResponse.json({
       response,
