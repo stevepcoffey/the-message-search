@@ -64,6 +64,16 @@ function getAnthropicText(content: any): string {
     .trim()
 }
 
+function parseJsonBlock(raw: string): any | null {
+  if (!raw) return null
+  const block = raw.match(/\{[\s\S]*\}/)?.[0] || raw
+  try {
+    return JSON.parse(block)
+  } catch {
+    return null
+  }
+}
+
 function meaningfulTokens(query: string): string[] {
   return [...new Set(
     query
@@ -308,33 +318,66 @@ export async function POST(request: NextRequest) {
     if (!passages.length) {
       response = 'These passages were found but may not directly answer your question.'
     } else {
-      const systemPrompt = `You are a research organizer. You have been given exact passages from William Branham's sermons and the KJV Bible. Your ONLY job is:
+      const candidatePassages = passages.slice(0, 10)
+      const systemPrompt = `You are a research organizer.
+Create a conversational guide using ONLY the provided passages.
 
-Write one short sentence introducing the topic (your own words)
-Select the most relevant exact passages and present them in order of relevance
-Write one short sentence of transition between passages if needed (your own words)
-Never reword, paraphrase, summarize or alter any passage text - copy it exactly
-Never add information not found in the passages
-If passages do not answer the question, say exactly: These passages were found but may not directly answer your question.
+Required style:
+- 1-2 sentence intro in your own words.
+- Then alternate: short bridge/commentary sentence -> exact quote.
+- Commentary lines must be SHORT (1-2 sentences max).
+- Quote labels use: From [Sermon Title] ([Date]):
+- End with a short 1-2 sentence summary.
+- Choose a maximum of 5 quotes.
+- If fewer than 3 good quotes exist, say so honestly.
 
-Format your response like this:
-[Your one sentence introduction]
-From [Sermon Title] ([Date]):
-[EXACT quote copied word for word]
-From [Sermon Title] ([Date]):
-[EXACT quote copied word for word]
-[Optional one sentence transition or summary in your own words]`
+Critical constraints:
+- Never paraphrase quote text.
+- Never invent quote text.
+- Never add info not supported by passages.
+
+Return JSON only in this exact shape:
+{
+  "intro": "string",
+  "quote_indices": [1,2,3],
+  "bridges": ["string","string"],
+  "summary": "string",
+  "insufficient_quotes_note": "string or empty"
+}`
       try {
         const ai = await anthropic.messages.create({
           model: 'claude-sonnet-4-6',
-          max_tokens: 900,
+          max_tokens: 700,
           system: systemPrompt,
           messages: [{
             role: 'user',
-            content: toAscii(`Question: ${query}\n\nPassages:\n${rawPassages}`),
+            content: toAscii(`Question: ${query}\n\nPassages:\n${candidatePassages.map((p, i) => `${i + 1}. From ${p.title}${p.date ? ` (${p.date})` : ''}\n${p.text}`).join('\n\n')}`),
           }],
         })
-        response = getAnthropicText(ai?.content)
+        const text = getAnthropicText(ai?.content)
+        const plan = parseJsonBlock(text) || {}
+        const quoteIndices = (Array.isArray(plan?.quote_indices) ? plan.quote_indices : [])
+          .map((n: any) => Number(n))
+          .filter((n: number) => Number.isFinite(n) && n >= 1 && n <= candidatePassages.length)
+          .slice(0, 5)
+        const chosen: Passage[] = quoteIndices.length
+          ? quoteIndices.map((n: number) => candidatePassages[n - 1]).filter(Boolean)
+          : candidatePassages.slice(0, Math.min(4, candidatePassages.length))
+        const bridges: string[] = Array.isArray(plan?.bridges) ? plan.bridges.map((s: any) => String(s || '').trim()).filter(Boolean) : []
+        const intro = String(plan?.intro || '').trim()
+        const summary = String(plan?.summary || '').trim()
+        const insufficient = String(plan?.insufficient_quotes_note || '').trim()
+
+        const parts: string[] = []
+        if (intro) parts.push(intro)
+        chosen.forEach((p: Passage, idx: number) => {
+          if (idx > 0 && bridges[idx - 1]) parts.push(bridges[idx - 1])
+          parts.push(`From ${p.title}${p.date ? ` (${p.date})` : ''}:`)
+          parts.push(`> ${p.text}`)
+        })
+        if (insufficient) parts.push(insufficient)
+        if (summary) parts.push(summary)
+        response = parts.join('\n\n').trim()
       } catch {
         response = ''
       }
