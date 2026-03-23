@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { supabase } from '@/lib/supabase'
+import { searchSnippetAndBestPhrase } from '@/lib/searchSnippet'
 import BibleReader from '@/components/BibleReader'
 
 type ExactPassage = { idx?: number; text: string; title: string; date?: string; source?: 'message' | 'bible'; ref?: string; reference_code?: string }
@@ -209,6 +210,16 @@ function findBestParagraphIndex(paragraphs: string[], quote: string): number {
     }
   }
   return bestScore >= 6 ? bestIdx : -1
+}
+
+/** Split haystack at first case-insensitive occurrence of needle (needle must be non-empty). */
+function splitAtInsensitive(haystack: string, needle: string): [string, string, string] | null {
+  const n = needle.trim()
+  if (!n) return null
+  const lower = haystack.toLowerCase()
+  const idx = lower.indexOf(n.toLowerCase())
+  if (idx === -1) return null
+  return [haystack.slice(0, idx), haystack.slice(idx, idx + n.length), haystack.slice(idx + n.length)]
 }
 
 function HomeLanding({
@@ -625,6 +636,61 @@ export default function Home() {
       idx % 2 === 1
         ? <mark key={`hl-${idx}`} style={{ background: accent.soft, color: '#1F2937', padding: '0 2px', borderRadius: 3 }}>{part}</mark>
         : part
+    )
+  }
+
+  const softHighlightStyle = { background: accent.soft, color: '#1F2937', padding: '0 2px', borderRadius: 3 } as const
+  const bestPhraseHighlightStyle = {
+    background: `${accent.cta}50`,
+    color: darkMode ? '#fff' : '#111827',
+    padding: '2px 5px',
+    borderRadius: 4,
+    fontWeight: 700 as const,
+    boxShadow: `0 0 0 1px ${accent.cta}`,
+  }
+
+  const renderSearchResultQuote = (fullText: string) => {
+    const { snippet, bestPhrase, truncated } = searchSnippetAndBestPhrase(fullText, lastSearchQuery, searchMatchType)
+    const terms = getSearchHighlightTerms(lastSearchQuery, searchMatchType)
+
+    const applyTermHighlights = (text: string, keyPrefix: string) => {
+      if (!text) return null
+      if (!terms.length) return text
+      const escaped = terms.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+      const re = new RegExp(`(${escaped.join('|')})`, 'ig')
+      return text.split(re).map((part, idx) =>
+        idx % 2 === 1 ? (
+          <mark key={`${keyPrefix}-${idx}`} style={softHighlightStyle}>
+            {part}
+          </mark>
+        ) : (
+          part
+        )
+      )
+    }
+
+    const triple = bestPhrase.trim().length >= 4 ? splitAtInsensitive(snippet, bestPhrase) : null
+    const body =
+      triple && triple[1].length > 0 ? (
+        <>
+          {applyTermHighlights(triple[0], 'sq-pre')}
+          <mark style={bestPhraseHighlightStyle}>{triple[1]}</mark>
+          {applyTermHighlights(triple[2], 'sq-post')}
+        </>
+      ) : (
+        <>{applyTermHighlights(snippet, 'sq-all')}</>
+      )
+
+    return (
+      <>
+        {body}
+        {truncated ? (
+          <span style={{ color: t.text3, fontWeight: 500 }} title="Full text is available when you open the sermon or copy.">
+            {' '}
+            …
+          </span>
+        ) : null}
+      </>
     )
   }
 
@@ -1360,7 +1426,7 @@ export default function Home() {
                           <div key={`${r.source_title}-${r.source_date}-${r.quote_text.slice(0, 40)}-${i}`} style={{ ...card(t), marginBottom: 12, minWidth: 0, padding: 'clamp(14px, 2.3vw, 20px)', borderLeft: `4px solid ${borderColor}`, background: tintBg }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start' }}>
                               <p style={{ margin: 0, borderLeft: '3px solid #F59E0B', paddingLeft: 'clamp(12px, 1.8vw, 18px)', paddingRight: 'clamp(2px, 0.8vw, 8px)', lineHeight: 1.7, overflowWrap: 'anywhere', wordBreak: 'break-word', flex: 1 }}>
-                                "{highlightMatches(r.quote_text, lastSearchQuery, searchMatchType)}"
+                                "{renderSearchResultQuote(r.quote_text)}"
                               </p>
                               {isTop ? (
                                 <span style={{ fontSize: 11, borderRadius: 999, padding: '4px 8px', background: `${accent.cta}22`, color: darkMode ? accent.soft : '#24523c', border: `1px solid ${accent.cta}55`, fontWeight: 700, whiteSpace: 'nowrap' }}>Top match</span>
