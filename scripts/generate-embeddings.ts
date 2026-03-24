@@ -3,9 +3,10 @@ import { createClient } from '@supabase/supabase-js'
 
 const EMBEDDING_MODEL = 'text-embedding-3-small'
 const INTER_CHUNK_DELAY_MS = 200
-const PARALLEL_CHUNKS = 3
+const PARALLEL_CHUNKS = 10
 const MAX_RETRIES_PER_CHUNK = 3
 const FETCH_RETRY_DELAY_MS = 2000
+const DEFAULT_LIMIT_PER_RUN = 5000
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
 const supabaseServiceKey = process.env.SUPABASE_SECRET_KEY
@@ -28,19 +29,19 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
-function parseLimitArg(): number | null {
+function parseLimitArg(): number {
   const args = process.argv.slice(2)
   const eqArg = args.find(a => a.startsWith('--limit='))
   if (eqArg) {
     const n = Number(eqArg.split('=')[1])
-    return Number.isFinite(n) && n > 0 ? Math.floor(n) : null
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_LIMIT_PER_RUN
   }
   const idx = args.findIndex(a => a === '--limit')
   if (idx >= 0) {
     const n = Number(args[idx + 1])
-    return Number.isFinite(n) && n > 0 ? Math.floor(n) : null
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_LIMIT_PER_RUN
   }
-  return null
+  return DEFAULT_LIMIT_PER_RUN
 }
 
 async function getResumeId(table: 'sermon_chunks' | 'bible_verses'): Promise<number | null> {
@@ -120,7 +121,7 @@ async function processSingleChunkWithRetry(table: 'sermon_chunks' | 'bible_verse
   return { ok: false, skipped: true }
 }
 
-async function processTable(table: 'sermon_chunks' | 'bible_verses', limit: number | null) {
+async function processTable(table: 'sermon_chunks' | 'bible_verses', limit: number) {
   let totalProcessed = 0
   let successful = 0
   let skipped = 0
@@ -133,7 +134,7 @@ async function processTable(table: 'sermon_chunks' | 'bible_verses', limit: numb
       : `${table}: resuming from first null embedding id ${resumeId}`
   )
   if (resumeId == null) return
-  if (limit != null) console.log(`${table}: limit set to ${limit} chunks for this run`)
+  console.log(`${table}: limit set to ${limit} chunks for this run`)
 
   const started = Date.now()
   let currentId = resumeId
@@ -144,8 +145,8 @@ async function processTable(table: 'sermon_chunks' | 'bible_verses', limit: numb
   }
   console.log(`${table}: initial remaining rows from id ${currentId}: ${initialRemaining}`)
 
-  while (limit == null || totalProcessed < limit) {
-    const toFetch = limit != null ? Math.min(PARALLEL_CHUNKS, limit - totalProcessed) : PARALLEL_CHUNKS
+  while (totalProcessed < limit) {
+    const toFetch = Math.min(PARALLEL_CHUNKS, limit - totalProcessed)
     let rows: Row[] = []
     try {
       rows = await fetchNextNullEmbeddingRows(table, currentId, toFetch)
@@ -189,7 +190,7 @@ async function main() {
   const started = Date.now()
   const limit = parseLimitArg()
   console.log('Generating embeddings with OpenAI text-embedding-3-small...')
-  if (limit != null) console.log(`Per-table run limit: ${limit}`)
+  console.log(`Per-table run limit: ${limit}`)
 
   await processTable('sermon_chunks', limit)
   await processTable('bible_verses', limit)

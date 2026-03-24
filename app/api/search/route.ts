@@ -19,6 +19,8 @@ type ResultRow = {
   score: number
 }
 
+const RPC_TIMEOUT_MS = 5000
+
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SECRET_KEY!
@@ -52,24 +54,70 @@ function mapRpcRow(row: any): ResultRow {
   }
 }
 
-async function runExactSearch(query: string, source: SearchSource): Promise<ResultRow[]> {
-  const { data, error } = await supabase.rpc('search_exact', {
-    query_text: query,
-    source_filter: source || 'both',
-    result_limit: 20,
-  })
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+    ),
+  ])
+}
+
+function mapDirectSermonRow(row: any): ResultRow {
+  const sermonMeta = Array.isArray(row?.sermons) ? row.sermons[0] : row?.sermons
+  return {
+    id: row?.id ?? '',
+    text: String(row?.text || ''),
+    title: String(sermonMeta?.title || 'William Branham Sermon'),
+    date: String(sermonMeta?.date || ''),
+    reference_code: String(sermonMeta?.reference_code || ''),
+    paragraph_number: row?.paragraph_number == null ? null : Number(row.paragraph_number),
+    source: 'message',
+    score: 0,
+  }
+}
+
+async function fallbackSermonIlike(query: string): Promise<ResultRow[]> {
+  const { data, error } = await supabase
+    .from('sermon_chunks')
+    .select('id,text,paragraph_number,sermons(title,date,reference_code)')
+    .ilike('text', `%${query}%`)
+    .limit(20)
+
   if (error) throw error
-  return ((data || []) as any[]).map(mapRpcRow)
+  return ((data || []) as any[]).map(mapDirectSermonRow)
+}
+
+async function runExactSearch(query: string, source: SearchSource): Promise<ResultRow[]> {
+  try {
+    const rpc = supabase.rpc('search_exact', {
+      query_text: query,
+      source_filter: source || 'both',
+      result_limit: 20,
+    })
+    const { data, error } = await withTimeout(rpc, RPC_TIMEOUT_MS, 'search_exact')
+    if (error) throw error
+    return ((data || []) as any[]).map(mapRpcRow)
+  } catch (err: any) {
+    console.warn(`search_exact failed, falling back to ILIKE: ${err?.message || String(err)}`)
+    return fallbackSermonIlike(query)
+  }
 }
 
 async function runAllWordsSearch(query: string, source: SearchSource): Promise<ResultRow[]> {
-  const { data, error } = await supabase.rpc('search_all_words', {
-    query_text: query,
-    source_filter: source || 'both',
-    result_limit: 20,
-  })
-  if (error) throw error
-  return ((data || []) as any[]).map(mapRpcRow)
+  try {
+    const rpc = supabase.rpc('search_all_words', {
+      query_text: query,
+      source_filter: source || 'both',
+      result_limit: 20,
+    })
+    const { data, error } = await withTimeout(rpc, RPC_TIMEOUT_MS, 'search_all_words')
+    if (error) throw error
+    return ((data || []) as any[]).map(mapRpcRow)
+  } catch (err: any) {
+    console.warn(`search_all_words failed, falling back to ILIKE: ${err?.message || String(err)}`)
+    return fallbackSermonIlike(query)
+  }
 }
 
 async function runRelevantSearch(query: string, source: SearchSource): Promise<ResultRow[]> {

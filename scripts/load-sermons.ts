@@ -1,155 +1,288 @@
 import { createClient } from '@supabase/supabase-js'
-import { readFileSync, readdirSync } from 'fs'
+import { readdirSync, readFileSync } from 'fs'
 import { join } from 'path'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseKey = process.env.SUPABASE_SECRET_KEY!
-const supabase = createClient(supabaseUrl, supabaseKey)
+type ParsedParagraph = {
+  paragraph_number: number
+  text: string
+  normalized_text: string
+  word_count: number
+}
 
-function clean(text: string): string {
-  return text
-    .replace(/[\u2028\u2029\u0085]/g, ' ')
-    .replace(/[^\x20-\x7E\n\r\t]/g, ' ')
+type ParsedSermon = {
+  title: string
+  date: string
+  reference_code: string
+  /** Defaults to 'Unknown' when omitted (standard transcripts). */
+  location?: string
+  paragraphs: ParsedParagraph[]
+}
+
+/** Church Age Book (CAB.txt) — no YY-MMDD reference codes; one synthetic sermon. */
+const CHURCH_AGE_BOOK = {
+  filename: 'cab.txt',
+  title: 'An Exposition Of The Seven Church Ages',
+  reference_code: 'CAB',
+  date: '1965-01-01',
+  location: 'Jeffersonville',
+} as const
+
+const REF_CODE_RE = /^\s*(\d{2})-(\d{4})\s*$/
+const PARAGRAPH_RE = /^\s*(\d{1,5})\s+(.*\S)?\s*$/
+const MIN_WORDS = 20
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+const supabaseKey = process.env.SUPABASE_SECRET_KEY
+
+if (!supabaseUrl || !supabaseKey) {
+  console.error('Missing env vars: NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SECRET_KEY are required.')
+  process.exit(1)
+}
+
+const supabase = createClient(supabaseUrl, supabaseKey, {
+  auth: { persistSession: false, autoRefreshToken: false },
+})
+
+function cleanText(input: string): string {
+  return input
+    .replace(/\r/g, '\n')
+    .replace(/[^\x20-\x7E\n]/g, ' ')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+function normalizeText(input: string): string {
+  return input
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
 }
 
-function chunkText(text: string, size = 400, overlap = 50): string[] {
-  const words = text.split(/\s+/)
-  const chunks: string[] = []
-  let i = 0
-  while (i < words.length) {
-    const chunk = words.slice(i, i + size).join(' ')
-    if (chunk.trim()) chunks.push(chunk)
-    i += size - overlap
-  }
-  return chunks
+function wordCount(input: string): number {
+  return input.trim().split(/\s+/).filter(Boolean).length
 }
 
-function parseRefCode(code: string): string {
-  // Format: YY-MMDD e.g. 47-0412 = April 12, 1947
-  const match = code.match(/^(\d{2})-(\d{2})(\d{2})$/)
-  if (!match) return `19${code.slice(0, 2)}-01-01`
-  const year = parseInt(match[1]) > 24 ? `19${match[1]}` : `20${match[1]}`
-  const month = match[2]
-  const day = match[3]
-  return `${year}-${month}-${day}`
+function refCodeToDate(refCode: string): string {
+  const m = refCode.match(/^(\d{2})-(\d{2})(\d{2})$/)
+  if (!m) return ''
+  const yy = Number(m[1])
+  const year = yy >= 30 ? 1900 + yy : 2000 + yy
+  let month = Number(m[2])
+  let day = Number(m[3])
+
+  // Some transcript ref codes use 00 placeholders; default to first valid date.
+  if (month < 1 || month > 12) month = 1
+  if (day < 1) day = 1
+  const maxDay = new Date(year, month, 0).getDate()
+  if (day > maxDay) day = 1
+
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
 }
 
-function parseSermons(content: string, filename: string): Array<{title: string, date: string, reference_code: string, full_text: string}> {
-  const sermons = []
-  const lines = content.split('\n')
-  
-  let i = 0
-  while (i < lines.length) {
+function lastNonEmptyLine(lines: string[], fromIndex: number): string {
+  for (let i = fromIndex; i >= 0; i--) {
     const line = lines[i].trim()
-    
-    // Look for reference code pattern: YY-MMDD or YY-MMDDX
-    if (/^\d{2}-\d{4,6}[A-Z]?$/.test(line)) {
-      const refCode = line
-      const title = i > 0 ? lines[i - 1].trim() : refCode
-      
-      // Collect text until next sermon
-      let textLines = []
-      let j = i + 1
-      while (j < lines.length) {
-        const nextLine = lines[j].trim()
-        // Check if this is a new sermon reference code
-        if (/^\d{2}-\d{4,6}[A-Z]?$/.test(nextLine) && j > i + 2) {
-          break
-        }
-        textLines.push(lines[j])
-        j++
-      }
-      
-      const sermonText = textLines.join('\n')
-      
-      if (sermonText.trim().length > 100) {
-        sermons.push({
-          title: clean(title || refCode),
-          date: parseRefCode(refCode),
-          reference_code: refCode,
-          full_text: clean(sermonText)
-        })
-      }
-      
-      i = j
-    } else {
-      i++
+    if (line) return line
+  }
+  return ''
+}
+
+function parseParagraphs(lines: string[], stopOnRefCode = true): ParsedParagraph[] {
+  const paragraphs: ParsedParagraph[] = []
+  let currentNum: number | null = null
+  let buffer: string[] = []
+
+  const flush = () => {
+    if (currentNum == null) return
+    const text = cleanText(buffer.join(' ').trim())
+    if (!text) {
+      currentNum = null
+      buffer = []
+      return
+    }
+    const wc = wordCount(text)
+    if (wc >= MIN_WORDS) {
+      paragraphs.push({
+        paragraph_number: currentNum,
+        text,
+        normalized_text: normalizeText(text),
+        word_count: wc,
+      })
+    }
+    currentNum = null
+    buffer = []
+  }
+
+  for (const raw of lines) {
+    const line = raw.trim()
+    if (!line) continue
+    if (stopOnRefCode && REF_CODE_RE.test(line)) {
+      flush()
+      break
+    }
+    const pm = line.match(PARAGRAPH_RE)
+    if (pm) {
+      flush()
+      currentNum = Number(pm[1])
+      if (pm[2]) buffer.push(pm[2])
+    } else if (currentNum != null) {
+      buffer.push(line)
     }
   }
-  
-  // If no sermons found, treat whole file as one
-  if (sermons.length === 0) {
-    const yearMatch = filename.match(/(\d{4})/)
-    const year = yearMatch ? yearMatch[1] : '1950'
-    sermons.push({
-      title: filename.replace('.txt', ''),
-      date: `${year}-01-01`,
-      reference_code: filename.replace('.txt', ''),
-      full_text: clean(content)
-    })
+  flush()
+  return paragraphs
+}
+
+/** Entire CAB.txt as one sermon; numbered paragraphs only (no ref-code boundaries). */
+function parseChurchAgeBook(content: string): ParsedSermon | null {
+  const lines = content.replace(/\r/g, '').split('\n')
+  const paragraphs = parseParagraphs(lines, false)
+  if (!paragraphs.length) return null
+  return {
+    title: CHURCH_AGE_BOOK.title,
+    date: CHURCH_AGE_BOOK.date,
+    reference_code: CHURCH_AGE_BOOK.reference_code,
+    location: CHURCH_AGE_BOOK.location,
+    paragraphs,
   }
-  
+}
+
+function parseSermonsInFile(content: string): ParsedSermon[] {
+  const lines = content.replace(/\r/g, '').split('\n')
+  const sermons: ParsedSermon[] = []
+
+  const refIndexes: number[] = []
+  for (let i = 0; i < lines.length; i++) {
+    if (REF_CODE_RE.test(lines[i])) refIndexes.push(i)
+  }
+
+  for (let idx = 0; idx < refIndexes.length; idx++) {
+    const refIndex = refIndexes[idx]
+    const nextRefIndex = idx + 1 < refIndexes.length ? refIndexes[idx + 1] : lines.length
+
+    const refCode = lines[refIndex].trim()
+    const title = cleanText(lastNonEmptyLine(lines, refIndex - 1) || refCode)
+    const date = refCodeToDate(refCode)
+    const bodyLines = lines.slice(refIndex + 1, nextRefIndex)
+    const paragraphs = parseParagraphs(bodyLines)
+
+    if (!paragraphs.length) continue
+    sermons.push({ title, date, reference_code: refCode, paragraphs })
+  }
+
   return sermons
 }
 
+/** Insert sermon + chunks only when reference_code is new. Skip entirely if it already exists (no update, no chunk delete). */
+async function insertSermonIfNew(sermon: ParsedSermon): Promise<string | 'skipped' | null> {
+  const wc = sermon.paragraphs.reduce((n, p) => n + p.word_count, 0)
+
+  const { data: existing, error: existingErr } = await supabase
+    .from('sermons')
+    .select('id')
+    .eq('reference_code', sermon.reference_code)
+    .maybeSingle()
+
+  if (existingErr) {
+    console.error(`Failed checking existing sermon ${sermon.reference_code}: ${existingErr.message}`)
+    return null
+  }
+
+  const location = sermon.location ?? 'Unknown'
+
+  if (existing?.id) {
+    console.log(`  ⊘ skip (already exists): ${sermon.reference_code}`)
+    return 'skipped'
+  }
+
+  const { data: inserted, error: insertErr } = await supabase
+    .from('sermons')
+    .insert({
+      title: sermon.title,
+      date: sermon.date || null,
+      location,
+      reference_code: sermon.reference_code,
+      word_count: wc,
+    })
+    .select('id')
+    .single()
+
+  if (insertErr || !inserted?.id) {
+    console.error(`Failed inserting sermon ${sermon.reference_code}: ${insertErr?.message || 'unknown error'}`)
+    return null
+  }
+
+  return String(inserted.id)
+}
+
+async function insertParagraphChunks(sermonId: string, paragraphs: ParsedParagraph[]): Promise<number> {
+  let inserted = 0
+  const batchSize = 200
+  for (let i = 0; i < paragraphs.length; i += batchSize) {
+    const batch = paragraphs.slice(i, i + batchSize).map(p => ({
+      sermon_id: sermonId,
+      paragraph_number: p.paragraph_number,
+      chunk_index: p.paragraph_number,
+      text: p.text,
+      normalized_text: p.normalized_text,
+      // search_vector is expected to be populated in DB via to_tsvector('english', text)
+      // (typically by generated column or trigger).
+    }))
+
+    const { error } = await supabase.from('sermon_chunks').insert(batch)
+    if (error) {
+      console.error(`Chunk insert error for sermon_id=${sermonId}: ${error.message}`)
+      continue
+    }
+    inserted += batch.length
+  }
+  return inserted
+}
+
 async function loadSermons() {
-  const dir = join(process.env.HOME!, 'Documents/Message')
-  const files = readdirSync(dir).filter(f => f.endsWith('.txt'))
-  console.log(`Found ${files.length} files`)
+  const baseDir = join(process.env.HOME || '', 'Documents', 'Message')
+  const files = readdirSync(baseDir).filter(f => f.toLowerCase().endsWith('.txt')).sort()
+  console.log(`Found ${files.length} transcript files in ${baseDir}`)
 
   let totalSermons = 0
-  let totalChunks = 0
+  let totalParagraphs = 0
 
   for (const filename of files) {
-    console.log(`\nProcessing ${filename}...`)
-    const raw = readFileSync(join(dir, filename), 'utf-8')
-    const sermons = parseSermons(raw, filename)
-    console.log(`  Found ${sermons.length} sermons`)
+    const path = join(baseDir, filename)
+    const raw = readFileSync(path, 'utf8')
+    const sermons: ParsedSermon[] =
+      filename.toLowerCase() === CHURCH_AGE_BOOK.filename
+        ? (() => {
+            const cab = parseChurchAgeBook(raw)
+            return cab ? [cab] : []
+          })()
+        : parseSermonsInFile(raw)
+    if (!sermons.length) {
+      console.log(
+        filename.toLowerCase() === CHURCH_AGE_BOOK.filename
+          ? `- ${filename}: no numbered paragraphs found`
+          : `- ${filename}: no sermon reference codes found`
+      )
+      continue
+    }
 
     for (const sermon of sermons) {
-      const { data: newSermon, error } = await supabase
-        .from('sermons')
-        .insert({
-          title: sermon.title,
-          date: sermon.date,
-          location: 'Unknown',
-          reference_code: sermon.reference_code,
-          full_text: sermon.full_text.slice(0, 50000),
-          word_count: sermon.full_text.split(/\s+/).length,
-          tags: []
-        })
-        .select()
-        .single()
+      const sermonId = await insertSermonIfNew(sermon)
+      if (sermonId === null || sermonId === 'skipped') continue
 
-      if (error || !newSermon) {
-        console.error(`  Error inserting sermon ${sermon.title}:`, error?.message)
-        continue
-      }
-
-      const chunks = chunkText(sermon.full_text)
-
-      for (let i = 0; i < chunks.length; i += 50) {
-        const batch = chunks.slice(i, i + 50).map((text, j) => ({
-          sermon_id: newSermon.id,
-          chunk_index: i + j,
-          text: clean(text),
-          char_start: 0,
-          char_end: text.length
-        }))
-
-        const { error: ce } = await supabase.from('sermon_chunks').insert(batch)
-        if (ce) console.error(`  Chunk error:`, ce.message)
-      }
-
-      totalChunks += chunks.length
-      totalSermons++
-      console.log(`  ✓ ${sermon.title} (${sermon.date}) - ${chunks.length} chunks`)
+      const insertedParagraphs = await insertParagraphChunks(sermonId, sermon.paragraphs)
+      totalSermons += 1
+      totalParagraphs += insertedParagraphs
+      console.log(`✓ ${sermon.title} (${sermon.reference_code}) - ${insertedParagraphs} paragraphs`)
     }
   }
 
-  console.log(`\nDone! ${totalSermons} sermons, ${totalChunks} chunks loaded.`)
+  console.log(`\nDone! Loaded ${totalSermons} sermons and ${totalParagraphs} paragraphs.`)
 }
 
-loadSermons().catch(console.error)
+loadSermons().catch(err => {
+  console.error('load-sermons failed:', err)
+  process.exit(1)
+})
