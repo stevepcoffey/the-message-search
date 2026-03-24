@@ -18,6 +18,7 @@ type ResultRow = {
   source: 'message' | 'bible'
   score: number
 }
+type RpcRowsResponse = { data: any[] | null; error: any }
 
 const RPC_TIMEOUT_MS = 5000
 
@@ -94,8 +95,8 @@ async function runExactSearch(query: string, source: SearchSource): Promise<Resu
       query_text: query,
       source_filter: source || 'both',
       result_limit: 20,
-    })
-    const { data, error } = await withTimeout(rpc, RPC_TIMEOUT_MS, 'search_exact')
+    }) as Promise<RpcRowsResponse>
+    const { data, error } = await withTimeout<RpcRowsResponse>(rpc, RPC_TIMEOUT_MS, 'search_exact')
     if (error) throw error
     return ((data || []) as any[]).map(mapRpcRow)
   } catch (err: any) {
@@ -110,8 +111,8 @@ async function runAllWordsSearch(query: string, source: SearchSource): Promise<R
       query_text: query,
       source_filter: source || 'both',
       result_limit: 20,
-    })
-    const { data, error } = await withTimeout(rpc, RPC_TIMEOUT_MS, 'search_all_words')
+    }) as Promise<RpcRowsResponse>
+    const { data, error } = await withTimeout<RpcRowsResponse>(rpc, RPC_TIMEOUT_MS, 'search_all_words')
     if (error) throw error
     return ((data || []) as any[]).map(mapRpcRow)
   } catch (err: any) {
