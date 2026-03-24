@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import OpenAI from 'openai'
 
 export const maxDuration = 60
 
@@ -21,6 +22,7 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SECRET_KEY!
 )
+const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
 function normalizeMode(mode: unknown): SearchMode {
   if (mode === 'exact' || mode === 'allwords' || mode === 'relevant') return mode
@@ -47,43 +49,98 @@ function mapRpcRow(row: any): ResultRow {
 }
 
 function mapDirectSermonRow(row: any): ResultRow {
-  const sermonMeta = Array.isArray(row?.sermons) ? row.sermons[0] : row?.sermons
   return {
     id: row?.id ?? '',
     text: String(row?.text || ''),
-    title: String(sermonMeta?.title || 'William Branham Sermon'),
-    date: String(sermonMeta?.date || ''),
-    reference_code: String(sermonMeta?.reference_code || ''),
+    title: String(row?.sermon_title || 'William Branham Sermon'),
+    date: String(row?.sermon_date || ''),
+    reference_code: String(row?.sermon_reference_code || ''),
     paragraph_number: row?.paragraph_number == null ? null : Number(row.paragraph_number),
     source: 'message',
     score: 0,
   }
 }
 
-async function fallbackSermonIlike(query: string): Promise<ResultRow[]> {
+function mapBibleRow(row: any): ResultRow {
+  return {
+    id: row?.id ?? '',
+    text: String(row?.text || ''),
+    title: `${row?.book || ''} ${row?.chapter || ''}:${row?.verse || ''}`.trim() || 'KJV Bible',
+    date: 'KJV',
+    reference_code: '',
+    paragraph_number: null,
+    source: 'bible',
+    score: 0,
+  }
+}
+
+function dedupeRows(rows: ResultRow[]): ResultRow[] {
+  const seen = new Set<string>()
+  const out: ResultRow[] = []
+  for (const row of rows) {
+    const key = `${row.source}|${row.id}|${row.title}|${row.text.slice(0, 120)}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(row)
+  }
+  return out
+}
+
+async function searchSermonsExact(query: string): Promise<ResultRow[]> {
   const { data, error } = await supabase
     .from('sermon_chunks')
-    .select('id,text,paragraph_number,sermons(title,date,reference_code)')
-    .ilike('text', `%${query}%`)
+    .select('id,text,paragraph_number,sermon_title,sermon_date,sermon_reference_code')
+    .ilike('normalized_text', `%${query.toLowerCase()}%`)
     .limit(20)
-
   if (error) throw error
   return ((data || []) as any[]).map(mapDirectSermonRow)
 }
 
-async function runFastSearch(query: string, source: SearchSource): Promise<ResultRow[]> {
-  try {
-    const { data, error } = await supabase.rpc('search_fast', {
-      query_text: query,
-      source_filter: source || 'both',
-      result_limit: 20,
-    })
-    if (error) throw error
-    return ((data || []) as any[]).map(mapRpcRow)
-  } catch (err: any) {
-    console.warn(`search_fast failed, falling back to ILIKE: ${err?.message || String(err)}`)
-    return fallbackSermonIlike(query)
-  }
+async function searchBibleExact(query: string): Promise<ResultRow[]> {
+  const { data, error } = await supabase
+    .from('bible_verses')
+    .select('id,book,chapter,verse,text')
+    .ilike('normalized_text', `%${query.toLowerCase()}%`)
+    .limit(20)
+  if (error) throw error
+  return ((data || []) as any[]).map(mapBibleRow)
+}
+
+async function searchSermonsAllWords(query: string): Promise<ResultRow[]> {
+  const { data, error } = await supabase
+    .from('sermon_chunks')
+    .select('id,text,paragraph_number,sermon_title,sermon_date,sermon_reference_code')
+    .textSearch('search_vector', query, { type: 'plain', config: 'english' })
+    .limit(20)
+  if (error) throw error
+  return ((data || []) as any[]).map(mapDirectSermonRow)
+}
+
+async function searchBibleAllWords(query: string): Promise<ResultRow[]> {
+  const { data, error } = await supabase
+    .from('bible_verses')
+    .select('id,book,chapter,verse,text')
+    .textSearch('search_vector', query, { type: 'plain', config: 'english' })
+    .limit(20)
+  if (error) throw error
+  return ((data || []) as any[]).map(mapBibleRow)
+}
+
+async function searchRelevantHybrid(query: string): Promise<ResultRow[]> {
+  const embed = await openai.embeddings.create({
+    model: 'text-embedding-3-small',
+    input: query,
+  })
+  const queryEmbedding = embed.data[0]?.embedding
+  if (!queryEmbedding) return []
+
+  const { data, error } = await supabase.rpc('match_documents_hybrid', {
+    query_embedding: queryEmbedding,
+    keyword_query: query,
+    match_count: 20,
+  })
+  if (error) throw error
+  return ((data || []) as any[]).map(mapRpcRow)
 }
 
 export async function POST(request: NextRequest) {
@@ -98,10 +155,19 @@ export async function POST(request: NextRequest) {
     }
 
     let results: ResultRow[] = []
-
-    // All search modes now use search_fast with the same fallback behavior.
-    void mode
-    results = await runFastSearch(query, source)
+    if (mode === 'exact') {
+      const sermons = source === 'bible' ? [] : await searchSermonsExact(query)
+      const bible = source === 'message' ? [] : await searchBibleExact(query)
+      results = dedupeRows([...sermons, ...bible]).slice(0, 20)
+    } else if (mode === 'allwords') {
+      const sermons = source === 'bible' ? [] : await searchSermonsAllWords(query)
+      const bible = source === 'message' ? [] : await searchBibleAllWords(query)
+      results = dedupeRows([...sermons, ...bible]).slice(0, 20)
+    } else {
+      const hybrid = await searchRelevantHybrid(query)
+      const filtered = source === 'both' ? hybrid : hybrid.filter(r => r.source === source)
+      results = dedupeRows(filtered).slice(0, 20)
+    }
 
     return NextResponse.json({ results })
   } catch (error: any) {

@@ -17,9 +17,6 @@ type Passage = {
   score: number
 }
 
-const RERANK_PROMPT =
-  'Score each passage 1-10 for how directly it answers this question. Score 1 = completely irrelevant. Score 10 = direct exact answer. Return ONLY a JSON array like [{index: 0, score: 8}, {index: 1, score: 3}]. Nothing else.'
-
 const ANSWER_SYSTEM_PROMPT = `You are a retrieval assistant for William Branham sermons and the KJV Bible.
 
 ABSOLUTE RULES:
@@ -57,23 +54,6 @@ function anthropicText(content: unknown): string {
     .trim()
 }
 
-function parseRerankScores(raw: string): Array<{ index: number; score: number }> {
-  if (!raw) return []
-  const block = raw.match(/\[[\s\S]*\]/)?.[0] || raw
-  try {
-    const parsed = JSON.parse(block)
-    if (!Array.isArray(parsed)) return []
-    return parsed
-      .map((item: any) => ({
-        index: Number(item?.index),
-        score: Number(item?.score),
-      }))
-      .filter(item => Number.isFinite(item.index) && Number.isFinite(item.score))
-  } catch {
-    return []
-  }
-}
-
 function mapPassage(row: any): Passage {
   const source = row?.source === 'bible' ? 'bible' : 'message'
   return {
@@ -88,7 +68,19 @@ function mapPassage(row: any): Passage {
   }
 }
 
-async function retrieveTopPassages(query: string): Promise<Passage[]> {
+function mostMeaningfulWord(query: string): string {
+  const stop = new Set(['the', 'and', 'for', 'with', 'that', 'this', 'what', 'when', 'where', 'from', 'into'])
+  const words = query
+    .toLowerCase()
+    .split(/\s+/)
+    .map(w => w.replace(/[^a-z0-9]/g, ''))
+    .filter(Boolean)
+    .filter(w => !stop.has(w))
+    .sort((a, b) => b.length - a.length)
+  return words[0] || query.toLowerCase().trim()
+}
+
+async function retrieveHybridPassages(query: string): Promise<Passage[]> {
   const expandedTerms = expandQuery(query)
   const expanded = expandedTerms.join(' ')
 
@@ -102,53 +94,33 @@ async function retrieveTopPassages(query: string): Promise<Passage[]> {
   const { data, error } = await supabase.rpc('match_documents_hybrid', {
     query_embedding: embedding,
     keyword_query: expanded,
-    match_count: 30,
+    match_count: 20,
   })
   if (error) throw error
 
-  return ((data || []) as any[]).map(mapPassage).slice(0, 30)
+  return ((data || []) as any[]).map(mapPassage).slice(0, 20)
 }
 
-async function rerankPassages(query: string, passages: Passage[]): Promise<Passage[]> {
-  if (!passages.length) return []
+async function fallbackIlikePassages(query: string): Promise<Passage[]> {
+  const term = mostMeaningfulWord(query)
+  const { data, error } = await supabase
+    .from('sermon_chunks')
+    .select('id,text,paragraph_number,sermon_title,sermon_date,sermon_reference_code')
+    .ilike('text', `%${term}%`)
+    .limit(15)
+  if (error) throw error
 
-  const payload = passages.map((p, i) => ({
-    index: i,
-    title: p.title,
-    date: p.date,
-    reference_code: p.reference_code,
-    paragraph_number: p.paragraph_number,
-    source: p.source,
-    text: p.text,
+  const rows = (data || []) as any[]
+  return rows.map(row => ({
+    id: row?.id ?? '',
+    text: String(row?.text || ''),
+    title: String(row?.sermon_title || 'William Branham Sermon'),
+    date: String(row?.sermon_date || ''),
+    reference_code: String(row?.sermon_reference_code || ''),
+    paragraph_number: row?.paragraph_number == null ? null : Number(row.paragraph_number),
+    source: 'message' as const,
+    score: 0,
   }))
-
-  try {
-    const rerank = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
-      temperature: 0,
-      max_tokens: 1200,
-      system: RERANK_PROMPT,
-      messages: [
-        {
-          role: 'user',
-          content: `Question: ${query}\n\nPassages:\n${JSON.stringify(payload)}`,
-        },
-      ],
-    })
-    const scores = parseRerankScores(anthropicText(rerank.content))
-    if (!scores.length) throw new Error('rerank_parse_failed')
-
-    const byIndex = new Map(scores.map(s => [s.index, s.score]))
-    const ranked = passages
-      .map((p, i) => ({ ...p, rerank_score: byIndex.get(i) ?? 0 }))
-      .filter(p => p.rerank_score >= 6)
-      .sort((a, b) => b.rerank_score - a.rerank_score || b.score - a.score)
-      .slice(0, 12)
-
-    return ranked.map(({ rerank_score, ...rest }: any) => rest as Passage)
-  } catch {
-    return passages.slice().sort((a, b) => b.score - a.score).slice(0, 12)
-  }
 }
 
 async function generateResponse(query: string, passages: Passage[]): Promise<string> {
@@ -191,13 +163,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Query is required' }, { status: 400 })
     }
 
-    // Step 1 + Step 2
-    const retrieved = await retrieveTopPassages(query)
+    let passages: Passage[] = []
+    try {
+      passages = await retrieveHybridPassages(query)
+    } catch {
+      passages = []
+    }
+    if (!passages.length) {
+      try {
+        passages = await fallbackIlikePassages(query)
+      } catch {
+        passages = []
+      }
+    }
 
-    // Step 3
-    const topPassages = await rerankPassages(query, retrieved)
-
-    // Step 4
+    const topPassages = passages.slice(0, 15)
     const response = await generateResponse(query, topPassages)
 
     const sources = topPassages.map(p => ({
